@@ -1,0 +1,25 @@
+# Facet as a NATIVE Vector codec (both directions), running in a crystal-warden build of Vector
+# (branch facet-codec off v0.57.0; encoder + decoder live in lib/codecs behind `codecs-facet`).
+# Instance A encodes decisions to the Facet wire; instance B ingests the wire and re-emits routed
+# JSON. One byte-aligned reading per length_delimited frame; ~2 B/decision on this 4 field policy.
+#
+#   # instance B (aggregator):  vector --config vector.toml   (this file)
+#   # instance A (edge):        gen_events.py | vector --config vector_edge.toml
+#
+# The standalone facet-sink crate here remains the DIL/self-heal simulator (Merkle-committed
+# blocks over a lossy link); for plain encoding it is superseded by the native codec.
+
+[sources.facet_in]
+type = "socket"
+mode = "tcp"
+address = "127.0.0.1:19310"
+decoding.codec = "facet"
+decoding.policy = "../../adapters/fusion/flows/fusion_triage.md"
+decoding.route_node = "intake"
+framing.method = "length_delimited"
+framing.length_delimited = {}
+
+[sinks.out]
+type = "console"
+inputs = ["facet_in"]
+encoding.codec = "json"
