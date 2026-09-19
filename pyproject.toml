@@ -64,6 +64,7 @@ prismpath = ["flows/*.md",                    # example + reference flows
           "policies/*.md", "policies/*.json", # the guard's statutory floor + P1 lockfile
           "gallery/*.md", "gallery/*/*.md",   # `prismpath init --template` copies these
           "tests/fixtures/broken/*.md",       # the analyzer's broken-flow corpus (test_analysis)
+          "examples/README.md", "examples/*/*",   # the persona examples; the compiler references and two tests read them
           "tests/fixtures/*.md", "tests/fixtures/*.jsonl",   # the lint fixture and the kappa dataset
           "tests/fixtures/compiler/*", "tests/fixtures/compiler/anchored/*",   # the compiler references
           "telemetry/conformance/*.json",     # the frozen Facet corpora every other implementation is judged by

@@ -115,14 +115,14 @@ PY
       if \$V/prismpath compile incident_severity.md --tier p0 2> compile.err; then echo 'compile must fail'; exit 1; fi
       grep -q 'not available in this distribution' compile.err
       echo 'base smoke ok'"
-    run_gate "python base: installed package test (base extras only)" "$OUT/base-tests.log" bash -c "cd '$OUT' && '$OUT/venv-base/bin/pip' -q install pytest && PRISMPATH_ACCEPTANCE_INSTALLED=1 '$OUT/venv-base/bin/python' -m pytest --pyargs prismpath.tests.test_installed_package prismpath.tests.test_cli_without_js_engine prismpath.tests.test_compatibility_hashes prismpath.tests.test_compiler_parity -q -p no:cacheprovider"
+    run_gate "python base: installed package test (base extras only)" "$OUT/base-tests.log" bash -c "cd '$OUT' && '$OUT/venv-base/bin/pip' -q install pytest && PATH='$OUT/venv-base/bin':\$PATH PRISMPATH_ACCEPTANCE_INSTALLED=1 '$OUT/venv-base/bin/python' -m pytest --pyargs prismpath.tests.test_installed_package prismpath.tests.test_cli_without_js_engine prismpath.tests.test_compatibility_hashes prismpath.tests.test_compiler_parity -q -p no:cacheprovider"
     # -------------------------------------------------------------- full install: extras, the shipped suites against the installed package
     run_gate "python full: install with signing, control-plane, test extras" "$OUT/full-install.log" bash -c "'$PYTHON' -m venv '$OUT/venv-full' && '$OUT/venv-full/bin/pip' -q install '$WHEEL[signing,control-plane,test]' httpx"
-    run_gate "python full: runtime suite against the installed package" "$OUT/full-tests.log" bash -c "cd '$OUT' && PRISMPATH_ACCEPTANCE_INSTALLED=1 '$OUT/venv-full/bin/python' -m pytest --pyargs prismpath.tests prismpath.telemetry.tests -q -p no:cacheprovider -m 'not cross_language' -rs"
+    run_gate "python full: runtime suite against the installed package" "$OUT/full-tests.log" bash -c "cd '$OUT' && PATH='$OUT/venv-full/bin':\$PATH PRISMPATH_ACCEPTANCE_INSTALLED=1 '$OUT/venv-full/bin/python' -m pytest --pyargs prismpath.tests prismpath.telemetry.tests -q -p no:cacheprovider -m 'not cross_language' -rs"
     run_gate "python full: skip budget" "$OUT/skips.log" "$PYTHON" - "$OUT/full-tests.log" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
-allowed = ("sentence_transformers", "torch", "transformers", "playwright", "bwrap", "tomllib needs Python 3.11", "cargo not installed", "rust toolchain not installed")
+allowed = ("sentence_transformers", "needs the real bge embedder", "torch", "transformers", "playwright", "bwrap", "tomllib needs Python 3.11")
 skips = re.findall(r"^SKIPPED \[\d+\] (.+)$", text, re.M)
 unbudgeted = [line for line in skips if not any(reason in line for reason in allowed)]
 print("skips:", len(skips)); [print("  ", line) for line in skips]
@@ -171,9 +171,9 @@ try:
     for asset in ("/", "/style.css", "/app.js", "/vendor/cytoscape.min.js"):
         status, body = get(asset); assert status == 200 and body, asset
     print("static assets served")
-    status, validation = post("/api/v1/validate", {"flow_md": "flows/triage.md"}); print("validate:", status, str(validation)[:120])
-    status, facet = post("/api/v1/facet-encode", {"flow_md": "flows/triage.md", "reading_json": {"priority": 7}}); print("facet-encode:", status, str(facet)[:160])
-    status, verified = post("/api/v1/pack-verify", {"ppt_path": "triage.ppt", "pub": ["keys/authority.pub"]}); print("pack-verify:", status, verified.get("ok"), verified.get("reasons"))
+    status, validation = post("/api/v1/inspect/validate", {"flow_md": "flows/triage.md"}); print("validate:", status, str(validation)[:120])
+    status, facet = post("/api/v1/policy/facet-encode", {"flow_md": "flows/triage.md", "reading_json": {"priority": 7}}); print("facet-encode:", status, str(facet)[:160])
+    status, verified = post("/api/v1/policy/pack-verify", {"ppt_path": "triage.ppt", "pub": ["keys/authority.pub"]}); print("pack-verify:", status, verified.get("ok"), verified.get("reasons"))
     assert verified.get("ok") is True, verified
     audit_default = state_home / "prismpath" / "mission_audit.log"
     assert audit_default.exists(), f"audit log not at the state directory default: {audit_default}"
@@ -202,9 +202,9 @@ finally:
     server.terminate(); server.wait(timeout=10)
 PY
     # -------------------------------------------------------------- source archive
-    run_gate "source archive: unpack, rebuild, install, promised tests present" "$OUT/sdist.log" bash -c "rm -rf '$OUT/sdist-work' && mkdir '$OUT/sdist-work' && tar -xzf '$SDIST' -C '$OUT/sdist-work' && cd '$OUT'/sdist-work/prismpath-* && test -f prismpath/tests/test_causes.py && test -f prismpath/tests/fixtures/compiler/SHA256SUMS && test -f COMPATIBILITY.md && '$OUT/venv-build/bin/python' -m build --outdir '$OUT/dist-from-sdist' . && '$PYTHON' -m venv '$OUT/venv-sdist' && '$OUT/venv-sdist/bin/pip' -q install '$OUT'/dist-from-sdist/*.whl pytest && cd '$OUT' && '$OUT/venv-sdist/bin/python' -m pytest --pyargs prismpath.tests.test_compatibility_hashes prismpath.tests.test_installed_package -q -p no:cacheprovider"
+    run_gate "source archive: unpack, rebuild, install, promised tests present" "$OUT/sdist.log" bash -c "rm -rf '$OUT/sdist-work' && mkdir '$OUT/sdist-work' && tar -xzf '$SDIST' -C '$OUT/sdist-work' && cd '$OUT'/sdist-work/prismpath-* && test -f prismpath/tests/test_causes.py && test -f prismpath/tests/fixtures/compiler/SHA256SUMS && test -f COMPATIBILITY.md && '$OUT/venv-build/bin/python' -m build --outdir '$OUT/dist-from-sdist' . && '$PYTHON' -m venv '$OUT/venv-sdist' && '$OUT/venv-sdist/bin/pip' -q install '$OUT'/dist-from-sdist/*.whl pytest && cd '$OUT' && PATH='$OUT/venv-sdist/bin':\$PATH PRISMPATH_ACCEPTANCE_INSTALLED=1 '$OUT/venv-sdist/bin/python' -m pytest --pyargs prismpath.tests.test_compatibility_hashes prismpath.tests.test_installed_package -q -p no:cacheprovider"
     # -------------------------------------------------------------- examples and quickstart
-    run_gate "documentation: examples and quickstart commands" "$OUT/examples.log" bash -c "cd '$EXPORT' && P='$OUT/venv-full/bin/prismpath' && \$P validate prismpath/examples/pr_demo/triage.md && \$P test prismpath/examples/pr_demo/triage.md && \$P validate prismpath/examples/operator_overlay/overlay.md && \$P test prismpath/examples/operator_overlay/overlay.md && \$P validate prismpath/examples/governed_worker/governed_worker.md && \$P validate prismpath/examples/code_nodes/pipeline.md && \$P validate prismpath/examples/cli_worker/ci_gate.md && \$P graph prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P contract prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P capability prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P verify prismpath/gallery/incident_severity/incident_severity.md > /dev/null && bash prismpath/examples/pr_demo/demo.sh > /dev/null"
+    run_gate "documentation: examples and quickstart commands" "$OUT/examples.log" bash -c "cd '$EXPORT' && export PATH='$OUT/venv-full/bin':\$PATH && P='$OUT/venv-full/bin/prismpath' && \$P validate prismpath/examples/pr_demo/triage.md && \$P test prismpath/examples/pr_demo/triage.md && \$P validate prismpath/examples/operator_overlay/overlay.md && \$P test prismpath/examples/operator_overlay/overlay.md && \$P validate prismpath/examples/governed_worker/governed_worker.md && \$P validate prismpath/examples/code_nodes/pipeline.md && \$P validate prismpath/examples/cli_worker/ci_gate.md && \$P graph prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P contract prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P capability prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P verify prismpath/gallery/incident_severity/incident_severity.md > /dev/null && bash prismpath/examples/pr_demo/demo.sh > /dev/null"
   else
     record "wheel built" FAIL "no wheel in $OUT/dist"
   fi

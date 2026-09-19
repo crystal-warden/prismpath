@@ -18,7 +18,10 @@ from pathlib import Path
 import pytest
 
 CARGO = shutil.which("cargo")
-pytestmark = pytest.mark.skipif(CARGO is None, reason="cargo not installed — Rust kernel untested here")
+# cross_language: this test drives cargo on the kernel crate sources, so it runs in the combined gate
+# and is deselected from the single language legs (tools/README.md).
+pytestmark = [pytest.mark.cross_language,
+              pytest.mark.skipif(CARGO is None, reason="cargo not installed — Rust kernel untested here")]
 
 from prismpath.tests._repo import repo_file
 

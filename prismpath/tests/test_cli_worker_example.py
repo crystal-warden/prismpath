@@ -39,6 +39,7 @@ def test_python_ci_gate():
     assert route("build broke, no numbers") == "error_hold"       # unparseable -> nonzero exit -> error tier
 
 
+@pytest.mark.cross_language
 @pytest.mark.skipif(shutil.which("rustc") is None, reason="rust toolchain not installed")
 def test_rust_ci_gate(tmp_path):
     binary = str(tmp_path / "ci_gate")

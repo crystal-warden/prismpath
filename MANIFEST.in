@@ -12,6 +12,7 @@ recursive-include prismpath/flows *.md
 recursive-include prismpath/nudges *.md
 recursive-include prismpath/policies *.md *.json
 recursive-include prismpath/gallery *.md
+recursive-include prismpath/examples *
 recursive-include prismpath/portable/conformance *.json
 recursive-include prismpath/telemetry/conformance *.json
 recursive-include prismpath/tests/fixtures *.md *.jsonl *.ppt *.json SHA256SUMS
