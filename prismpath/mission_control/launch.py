@@ -9,6 +9,7 @@ so they work for both kinds of run.
 import json
 import os
 import subprocess
+import sys
 import time
 
 from . import audit
@@ -58,7 +59,10 @@ def start_sprint(cfg, state):
             env["PYTHONUNBUFFERED"] = "1"
         else:
             env.pop("PYTHONUNBUFFERED", None)
-        argv = ["python"] + (["-u"] if unbuffered else []) + ["prismpath/run_sprint.py"]
+        # The sprint is the installed module, run by the interpreter the console itself runs under,
+        # with the selected project as its working directory. A bare "python" and a repo relative
+        # script path only worked from a source checkout.
+        argv = [sys.executable] + (["-u"] if unbuffered else []) + ["-m", "prismpath.orchestration.run_sprint"]
         for marker_name in ("STOP", "PAUSE"):
             try:
                 os.remove(os.path.join(proj, marker_name))
@@ -67,7 +71,7 @@ def start_sprint(cfg, state):
         # the child gets its own descriptor at spawn, so the parent closes its copy here rather
         # than leaking one handle per start_sprint
         with open(os.path.join(proj, "mc_sprint.log"), "a") as log:
-            proc = subprocess.Popen(argv, cwd=SETTINGS.repo_root, env=env, stdout=log, stderr=subprocess.STDOUT)
+            proc = subprocess.Popen(argv, cwd=proj, env=env, stdout=log, stderr=subprocess.STDOUT)
         cfg = dict(cfg, unbuffered=unbuffered)
         state.update({"proc": proc, "proj": proj, "cfg": cfg, "pinned": True})   # follow the one we started
     audit.record("sprint.start", {"proj": proj, "cfg": cfg, "pid": proc.pid, "unbuffered": unbuffered})
