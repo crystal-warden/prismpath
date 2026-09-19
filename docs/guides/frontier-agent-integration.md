@@ -41,18 +41,18 @@ This architecture pairs the **determinism, auditability, and safety of PrismPath
 
 ### Pattern A: Any CLI as a Worker (`prismpath.cli_worker`)
 
-The most decoupled worker pattern uses processes. PrismPath’s [`cli_worker.py`](../../prismpath/cli_worker.py) can invoke **any command line program** as a worker: an AI agent CLI or your own Go/Rust/JS/Python project, passing node instructions on `stdin` and parsing JSON/stdout. For a runnable, four language walkthrough of wiring in your own program, see [Run any program as a worker](workers.md).
+The most decoupled worker pattern uses processes. PrismPath’s [`cli_worker.py`](../../prismpath/workers/cli_worker.py) can invoke **any command line program** as a worker: an AI agent CLI or your own Go/Rust/JS/Python project, passing node instructions on `stdin` and parsing JSON/stdout. For a runnable, four language walkthrough of wiring in your own program, see [Run any program as a worker](workers.md).
 
 ```python
 from prismpath.parser import parse_file
 from prismpath.engine import run
-from prismpath.cli_worker import cli_agent
+from prismpath.cli_worker import cli_worker
 
 # Use any CLI agent backend (Claude Code, Gemini CLI, Aider, custom scripts)
-agent = cli_agent(["claude", "-p"])
+worker = cli_worker(["claude", "-p"])
 
 # Run the flow: the CLI handles node execution, PrismPath handles routing
-res = run(parse_file("workflow.md"), agent)
+res = run(parse_file("workflow.md"), worker)
 ```
 
 * **Outcome Contract**: If the CLI prints JSON (`{"text": "...", "tests_pass": true}`), PrismPath exposes those fields directly to safe `when` AST predicates (`-> done: when tests_pass`).
@@ -108,9 +108,9 @@ Process each changed file in parallel.
 ### Pattern E: Human in the Loop (HITL) Suspension & Co Pilots
 
 When a workflow reaches a high risk policy threshold (`-> manager_approval: when amount > 50000`) or low confidence ambiguity:
-1. PrismPath suspends execution as `needs_human` and generates an evidence packet ([`checkpoint.py`](../../prismpath/checkpoint.py)).
+1. PrismPath suspends execution as `needs_human` and generates an evidence packet ([`checkpoint.py`](../../prismpath/ledgers/checkpoint.py)).
 2. An agent or chat UI consumes the evidence packet and presents a structured review interface to a human operator.
-3. Once the human provides sign off, the application resumes execution via `resume --choose <target>`, recording a tamper evident audit log in the **Flow Ledger** ([`ledger.py`](../../prismpath/ledger.py)).
+3. Once the human provides sign off, the application resumes execution via `resume --choose <target>`, recording a tamper evident audit log in the **Flow Ledger** ([`ledger.py`](../../prismpath/ledgers/ledger.py)).
 
 ---
 

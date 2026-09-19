@@ -10,7 +10,7 @@ Routing is a **spectrum chosen by the engine, not the author**:
 
 | edge kind | syntax | how it routes | cost |
 |---|---|---|---|
-| **deterministic** | `-> t: when <expr>` (also `always`/`else`/`false`) | a safe predicate over the agent's structured outcome (+ a `visits` counter) | free, exact |
+| **deterministic** | `-> t: when <expr>` (also `always`/`else`/`false`) | a safe predicate over the worker's structured outcome (+ a `visits` counter) | free, exact |
 | **semantic** | `-> t: <natural language>` | embed the outcome vs the condition; escalate to a 1 shot LLM only on low confidence | ~free + rare LLM |
 
 > *Logic where logic exists, intent where it doesn't.* Negation, counts, and thresholds are written
@@ -48,12 +48,12 @@ All tests pass.
 Too many attempts.
 ```
 
-### The agent contract
+### The worker contract
 
-The engine is agent agnostic. You pass `run(graph, agent, router=...)` where:
+The engine is worker agnostic. You pass `run(graph, worker, router=...)` where:
 
 ```python
-agent(node_name: str, instruction: str, state: dict) -> str | dict
+worker(node_name: str, instruction: str, state: dict) -> str | dict
 ```
 
 - Return a **string** → it becomes the text used for semantic routing.
@@ -73,7 +73,7 @@ from prismpath.router import HybridRouter, LLMRouter
 from prismpath import llm_local
 
 router = HybridRouter(LLMRouter(llm_local.generate), margin=0.05)  # recommended
-run(graph, agent, router=router)
+run(graph, worker, router=router)
 ```
 
 - `EmbeddingRouter()`: cosine only (cheap, ~0.82 on the routing bench).
@@ -153,7 +153,7 @@ tables run in places no framework runtime can follow: microcontrollers, smart se
 in kernel packet paths. The first of those places is now real: a fixed FPGA interpreter circuit
 on a Zynq-7020 executes Level M flows as runtime loaded table images (136 bytes for the demo
 flow), certified against a declared subset of the same frozen vectors:
-[`prismpath-hw/`](https://github.com/crystal-warden/prism-path/blob/main/prismpath-hw/README.md). What remains (WASM, XDP/eBPF,
+[`prismpath-hw/`](../../prismpath-hw/README.md). What remains (WASM, XDP/eBPF,
 P4) is listed honestly in [ROADMAP Phase 6](../../ROADMAP.md).
 
 ### Fan out and sub flow composition: parallelism without impurity
@@ -211,6 +211,135 @@ ships an **attestation tier** that makes a decision *provable and tamper evident
   discovery and resume it later, recording the actor. One primitive serves both HITL override and
   evidence request loops.
 
+## A worked example: support triage, and a pull request as a process change
+
+```markdown
+---
+name: support_triage
+start: classify
+---
+
+## classify
+Read the incoming support ticket. Emit `category`, `amount`, and `sentiment`.
+-> human_review: when category == "billing_dispute" and amount > 500
+-> billing: when category in ("billing", "billing_dispute")
+-> outage: when category == "outage"
+-> retention: when sentiment == "angry"
+-> general: else
+
+## human_review
+A person decides. High-value billing disputes are never auto-routed.
+
+## billing
+Apply the standard billing workflow.
+
+## outage
+Page the on-call engineer.
+
+## retention
+Hand off to the retention team.
+
+## general
+Answer from the support knowledge base.
+```
+
+That file **is** the program. Here it is as the engine sees it, verbatim `prismpath graph` output, not a
+drawing:
+
+```mermaid
+flowchart TD
+    _start(( )) --> classify
+    classify["classify"]
+    human_review(["human_review"])
+    billing(["billing"])
+    outage(["outage"])
+    retention(["retention"])
+    general(["general"])
+    classify -->|"when category == 'billing_dispute' and amou…"| human_review
+    classify -->|"when category in ('billing', 'billing_dispu…"| billing
+    classify -->|"when category == 'outage'"| outage
+    classify -->|"when sentiment == 'angry'"| retention
+    classify -->|"else"| general
+    classDef terminal fill:#e6f7ec,stroke:#3aa76d;
+    class human_review,billing,outage,retention,general terminal;
+```
+
+Because the flow is data, **a pull request is a process change**: the `human_review` rule lands as a
+three-line prose diff, a fixture row asserts it in CI (milliseconds, no model), and merging changes
+production routing with no deploy and no engineer in the loop. **See it run:**
+[`examples/pr_demo/`](../../prismpath/examples/pr_demo/README.md).
+
+## The worker is yours; the control plane is PrismPath's
+
+A node's worker is whatever does the work: an LLM agent, a plain function (a
+[code node](code-nodes.md)), a shell script, or an entire tool run wrapped as a worker. The
+[mdflow interop example](../../prismpath/examples/mdflow_interop/pipeline.md) drives another task
+runner's tasks as PrismPath nodes. Pair PrismPath with a tool like that and you keep its open-ended,
+agentic expression while PrismPath decides *where the run goes next* (provably) and records *what
+happened* (the git Flow-Ledger). You don't trade agentic work for governance; you wrap one inside the
+other. Expression stays with the worker, control and observability stay with the kernel.
+
+## One engine, many domains
+
+The engine owns routing, attestation, and the toolchain; **domains plug in behind ports** (Ingestion,
+Retrieval, Adjudicator, Action/Sink, Attestation, Deferral) with **no domain vocabulary in the core**:
+[`tools/arch_guard.py`](../../tools/arch_guard.py) fails the build if a domain noun leaks inward. The Facet
+wire itself ships in the package (`prismpath/telemetry/`, [PROTOCOL.md](../../PROTOCOL.md)) because it is
+core infrastructure every adapter uses: it compresses a flow's telemetry to the distinctions that still
+reproduce its routing decisions, entropy coded on a self framing wire and Merkle verified end to end. Two
+reference adapters ride the ports:
+
+- **The decision fusion plane** (`adapters/fusion/`): joins any N decision sources into one Level M
+  decidable, provable fused decision on a self framing wire measured at about 45 times under batched JSON
+  (integrity apparatus counted). The v1 worked example fuses a cyber triage verdict with a live IMU's
+  physical posture through one tessellation, proven end to end on the live rig
+  ([evidence #82 to #86](../research/supporting-evidence.md)).
+- **The GRC adjudication adapter** (`adapters/compliance/`): the class whose Adjudicator may be a model,
+  machine checkable controls deciding deterministically and prose objectives resolving fail closed, with
+  evidence typed determinations ([evidence #137 to #139](../research/supporting-evidence.md)).
+
+## From a decision to a receipt
+
+Everything above proves what can happen and decides what may. The last step is the one an auditor cares
+about: what happened, in a form that verifies without trusting the process that wrote it. Run the triage
+flow twice, once above and once below the human review line, appending one receipt per decision to an
+append only audit log, then read the trail:
+
+```python
+from prismpath.kernel.parser import parse_file
+from prismpath.kernel.engine import run
+from prismpath.kernel import causes
+from prismpath.ledgers.audit_log import AuditLog
+
+graph = parse_file("prismpath/examples/pr_demo/triage.md")
+log = AuditLog("triage.audit.jsonl")
+
+for amount in (700, 200):                                  # the same ticket, above and below the line
+    def worker(node, instruction, state, amount=amount):   # stands in for your worker
+        return {"category": "billing_dispute", "amount": amount, "sentiment": "neutral"}
+    result = run(graph, worker)
+    cause = causes.code("route:stuck") if result.stopped == "stuck" else 0
+    for step in result.steps:
+        log.append("gate", "decision", {"node": step.node, "target": step.target, "how": step.info.get("used"),
+                                        "outcome": result.path[-1], "cause": cause})
+print("root", log.current_root()[:16], "verifies", log.verify_log())
+```
+
+```bash
+prismpath trail triage.audit.jsonl
+# trail: triage.audit.jsonl  events 2 of 2  root 0375d60c23703633  verifies True
+# decisions 2:
+#   outcomes: human_review 1, billing 1
+#   causes:   0 clean x2
+```
+
+Your root will differ, because the receipts carry their own timestamps; the shape will not.
+
+Two decisions, two receipts, one Merkle root. Anchor the root with `prismpath ledger anchor` and a third
+party can later show the log was not edited. The same shape holds when the decision was made by a kernel
+program or a fabric: the receipt struct is the same, the cause byte is the same, and the
+[operator's guide](operator.md) covers reading the trail day to day.
+
 ## Command cheatsheet (kernel: no model required)
 
 ```bash
@@ -221,5 +350,6 @@ python -m prismpath.cli lint     prismpath/flows/triage_support.md   # validate 
 python -m prismpath.cli test     prismpath/flows/coding.md   # assert routing from coding.tests.md (a Markdown table, no LLM)
 python -m prismpath.cli lock     prismpath/flows/coding.md   # commit condition embeddings -> reproducible routing
 python -m prismpath.cli graph    prismpath/flows/coding.md --fenced   # -> a Mermaid diagram for your README
-python -m prismpath.cli run      prismpath/flows/coding.md   # run with a built-in mock agent; print path + stop reason
+python -m prismpath.cli run      prismpath/flows/coding.md   # run with a built-in mock worker; print path + stop reason
+python -m prismpath.cli run      prismpath/flows/coding.md --worker ollama:llama3.2   # a real local model instead of the mock (`--agent` is the old spelling, still accepted)
 ```

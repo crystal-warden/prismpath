@@ -11,9 +11,9 @@ import os
 
 import pytest
 
-from prismpath.audit_log import AuditLog
-from prismpath.guard import Blocked, compose, guarded_exchange, parse_policy_file
-from prismpath.guard_ledger import VERDICT_ACTION, attest_verdicts, verdict_recorder
+from prismpath.ledgers.audit_log import AuditLog
+from prismpath.safety.guard import Blocked, compose, guarded_exchange, parse_policy_file
+from prismpath.safety.guard_ledger import VERDICT_ACTION, attest_verdicts, verdict_recorder
 
 POLICIES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "policies")
 FLOOR = os.path.join(POLICIES_DIR, "statutory_floor.md")
@@ -30,7 +30,7 @@ def log(tmp_path):
 
 
 def entries(log):
-    return [e for e in log.events if e["action"] == VERDICT_ACTION]
+    return [event for event in log.events if event["action"] == VERDICT_ACTION]
 
 
 def test_an_allowed_exchange_is_recorded_not_just_denials(guard, log):
@@ -42,8 +42,8 @@ def test_an_allowed_exchange_is_recorded_not_just_denials(guard, log):
         on_verdict=verdict_recorder(log, guard),
     )
     recorded = entries(log)
-    assert [e["data"]["direction"] for e in recorded] == ["inbound", "outbound"]
-    assert all(e["data"]["allowed"] for e in recorded)
+    assert [event["data"]["direction"] for event in recorded] == ["inbound", "outbound"]
+    assert all(event["data"]["allowed"] for event in recorded)
 
 
 def test_a_denial_records_the_rule_policy_and_citation(guard, log):
@@ -67,13 +67,13 @@ def test_every_entry_binds_the_policy_hash(guard, log):
     """Bind the logic, not just the output — which rules AND which normalization decided this."""
     guarded_exchange(guard, "explain lifetimes", lambda _t: "a lifetime is...",
                      on_verdict=verdict_recorder(log, guard))
-    for e in entries(log):
-        assert e["data"]["policy_hash"] == guard.policy_hash
+    for event in entries(log):
+        assert event["data"]["policy_hash"] == guard.policy_hash
 
 
 def test_changing_the_normalization_changes_what_entries_attest_to(guard, log, monkeypatch):
     """A fold change must be visible in the trail, or the record misattributes past decisions."""
-    from prismpath import guard as guard_mod
+    from prismpath.safety import guard as guard_mod
 
     before = guard.policy_hash
     monkeypatch.setitem(guard_mod._LEET_UNAMBIGUOUS, "9", "g")

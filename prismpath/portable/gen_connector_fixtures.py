@@ -17,8 +17,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent))
 
-from prismpath.connector import BaseConnector, PayloadFlattener   # noqa: E402
-from prismpath.checkpoint import run_durable, resume, load_checkpoint  # noqa: E402
+from prismpath.workers.connector import BaseConnector, PayloadFlattener   # noqa: E402
+from prismpath.ledgers.checkpoint import run_durable, resume, load_checkpoint  # noqa: E402
+from prismpath import canon
 
 OUT = HERE / "conformance" / "connector.json"
 
@@ -70,9 +71,9 @@ def _scripted(script):
         seq = script.get(node)
         if seq is None:
             return {"text": node}
-        i = used.get(node, 0)
-        used[node] = i + 1
-        return seq[min(i, len(seq) - 1)]
+        visit_count = used.get(node, 0)
+        used[node] = visit_count + 1
+        return seq[min(visit_count, len(seq) - 1)]
 
     return agent
 
@@ -80,9 +81,9 @@ def _scripted(script):
 def main() -> int:
     conn = _Echo()
 
-    hashes = [{"data": p,
-               "ingestion": conn.compute_ingestion_hash(p),
-               "knowledge": conn.compute_knowledge_hash(p)} for p in _PAYLOADS]
+    hashes = [{"data": payload,
+               "ingestion": conn.compute_ingestion_hash(payload),
+               "knowledge": conn.compute_knowledge_hash(payload)} for payload in _PAYLOADS]
 
     prompts = [
         {"payload": _PAYLOADS[0], "criteria": None, "schema": None,
@@ -95,17 +96,16 @@ def main() -> int:
              _PAYLOADS[2], schema={"properties": {"verdict": {}, "reason": {}}})},
     ]
 
-    flat_cases = [{"data": p, "flat": PayloadFlattener().flatten(p)} for p in _PAYLOADS]
+    flat_cases = [{"data": payload, "flat": PayloadFlattener().flatten(payload)} for payload in _PAYLOADS]
 
     outcome = {"verdict": "contain", "score": 0.93}
     att = conn.attest_decision(outcome, "sha256:deadbeef", "wazuh_triage@v3",
                                ["sha256:aa"], "sha256:kb")
     att["created"] = "2026-08-12T00:00:00Z"
-    body = json.dumps({k: att[k] for k in att if k != "manifest_hash"}, sort_keys=True).encode()
-    att["manifest_hash"] = hashlib.sha256(body).hexdigest()
+    att["manifest_hash"] = canon.manifest_hash(att)
 
     # ---- join-policy grid: the composer's REAL threshold/event functions, frozen ----
-    from prismpath.composer import _join_event, _quorum_threshold
+    from prismpath.workers.composer import _join_event, _quorum_threshold
     join_grid = []
     for join in ["all_done", "any", "quorum:2", "quorum:0.6", "quorum:5", "quorum:oops"]:
         for done in ([True, True, True], [True, True, False], [True, False, False],
@@ -131,8 +131,8 @@ def main() -> int:
                      "spawn": (r1.pending or {}).get("spawn")}
 
         # children: run each in-process with state={'_item': item} (the minimal driver protocol)
-        from prismpath.engine import run as engine_run
-        from prismpath.parser import parse
+        from prismpath.kernel.engine import run as engine_run
+        from prismpath.kernel.parser import parse
         child_graph = parse(_FLOW_CHILD)
         child_script = {"work": [{"text": "worked"}], "finish": [{"text": "done"}]}
         children = []

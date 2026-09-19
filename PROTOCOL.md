@@ -23,7 +23,7 @@ carries only what the policy makes decidable.** As in `SPEC.md`, the committed c
 the decision preservation tests are part of this specification: an implementation conforms to `Facet/1`
 iff it reproduces them bit for bit.
 
-The reference implementation is `adapters/telemetry/` (`quantizer.py`, `wire.py`, `zeckendorf.py`,
+The reference implementation is `prismpath/telemetry/` (`quantizer.py`, `wire.py`, `zeckendorf.py`,
 `packed.py`); the transmission model and the optional confidentiality layer are exercised in
 `adapters/fusion/bench/wire.py`; decision preservation is proven in `adapters/fusion/tests/test_fusion_spiral.py`.
 
@@ -115,7 +115,8 @@ together and trade only *latency vs. bandwidth*, never fidelity (I5): `stream` (
 decision), `batch:N` (flush every N), and `mtu-fill` (fill to the MTU, with an optional latency cap).
 Facet is transport agnostic: it rides over TCP/TLS, UDP/DTLS, 802.15.4/Thread, LoRa, ESP-NOW, or a bare
 MCU link. It is **not** a transport: it provides no delivery, ordering, or congestion control, and
-depends on the underlying transport for those.
+depends on the underlying transport for those. For send-on-delta and resident-state streams, where a
+lost frame is not merely a freshness cost, the refresh profile (§2.7) bounds the damage.
 
 ### 2.4 Tamper evidence
 
@@ -134,6 +135,148 @@ primitives run on a Cortex-M0+. These are TLS 1.3 building blocks used as is (co
 rolled), and are required precisely because a low entropy verdict (e.g. a 2 bit state) needs keyed AEAD,
 not salting, to be hidden on the wire.
 
+### 2.6 The spiral packing profile (optional capability, normative when declared)
+
+A stream MAY declare the Tier 6 spiral packing, which packs a node's joint quantized cell space
+onto a single ordered index whose contiguous ranges are the routes (band ID routes at one symbol;
+Gray ordered refinement adds magnitude when the link affords it). The profile is derivation, not
+configuration: the layout comes entirely from the signed policy, so it satisfies the founding
+principle (agreed from the shared policy, never transmitted) exactly as the codebook does.
+
+- **Declaration.** The flow declares `packing: spiral` in its frontmatter; the pack manifest
+  carries `"packing": {"profile": "spiral", "sidecar_sha256": ...}` under the signature (see the
+  secure hotswap spec §3.1).
+- **Authoring rules, checked.** Severity order IS edge declaration order (most severe first), and
+  the baseline catch all is the LAST deterministic edge of every packed node. Both are decidable
+  and enforced as lint ERRORS on declared flows (`spiral-no-baseline`,
+  `spiral-baseline-not-last`): a convention violating flow fails `validate` and cannot be baked,
+  in every materialization.
+- **Two materializations, one layout.** Capable endpoints DERIVE the layout from the signed policy
+  at load. Small targets receive the BAKED sidecar (v1, little endian: per node field partitions,
+  numeric and boolean only; band bases, widths, and route map; cell to index map in row major
+  order for O(1) lookup) inside the pack they already verify. Derived and baked MUST be byte
+  equal; the reference referee is `spiral_pack.verify_derived_equals_baked`, and `verify_pack`
+  re hashes the sidecar against the signed manifest at load, so a tampered or missing sidecar
+  fails closed.
+- **Tier classes.** Band tier frames are decision lossless and ride the highest priority; Gray
+  refinement frames are fidelity and yield first. The transport binding maps priority to the
+  link's scarcity: cadence on lossy datagram links (band every tick, refinement opportunistic),
+  queue precedence on reliable streams. A collapsing link costs fidelity, never the decision.
+- **Stream identity is a binding concern.** Where the transport authenticates or identifies the
+  sender (ESP-NOW sender MAC, a TCP connection), identity SHOULD ride the transport at zero frame
+  cost; where it does not (raw LoRa PHY, files), the binding puts an explicit stream tag in frame.
+  The reference datagram binding (ESP-NOW v1) is payload = a Zeckendorf stream of
+  `[class, tick, value]`, each offset by one; class 1 band tier, class 2 refinement, class 3
+  posture gossip (the joint cell as a fleet coherence beacon).
+
+### 2.7 The refresh profile (bounded staleness under loss; optional capability, normative when declared)
+
+For a stateless per-reading stream, a lost frame costs freshness only (I5). For a **send-on-delta**
+stream, or any consumer mirroring a **resident state**, loss is sharper: a lost change frame leaves the
+consumer holding a *wrong* state, silently, for unbounded time, because silence and "unchanged" are
+indistinguishable on the wire. The refresh profile bounds that window. It changes **cadence, never
+bytes**: a keyframe is byte-identical to any other frame, so a stream under this profile is a valid
+`Facet/1` stream without it, stream conformance (§4) is unchanged, and the protocol version does not
+move.
+
+- **Declaration.** The flow declares two frontmatter keys, `refresh_keyframe_ms` and
+  `refresh_stale_ms` (positive integer milliseconds). Frontmatter is part of the signed document, so
+  the cadence contract rides under the signature like every other profile; nothing is derived or baked,
+  so no sidecar is needed. Checked as lint rules on declared flows: both keys required and integer
+  (`refresh-missing-param`, `refresh-bad-param`, ERROR), `stale >= keyframe` (`refresh-stale-bound`,
+  ERROR: otherwise a lossless link trips stale between keyframes), and `stale >= 2 * keyframe` SHOULD
+  hold (`refresh-stale-tight`, WARNING: below it a single lost keyframe parks the consumer on the
+  fail-safe).
+- **Sender contract.** A declared sender MUST emit its current full state at least every
+  `refresh_keyframe_ms`, even when unchanged, in addition to emitting on change.
+- **Consumer contract.** A declared consumer MUST treat received state older than `refresh_stale_ms`
+  as stale: it MUST NOT act on the last received value and MUST act on the policy's signed fail-safe
+  instead, the same fail-safe the stateful migration path uses. The next valid frame restores fresh
+  state. Both transitions (fresh to stale, stale to fresh) SHOULD be receipted with a distinct cause.
+- **Baked targets.** Carrying the two parameters inside the pack for targets that do not parse the
+  flow document is specified as follow-up work and is not yet normative; endpoints that adopt sender
+  emission changes on certified substrates re-certify under the usual discipline.
+
+The reference implementation is `prismpath/telemetry/refresh.py` (clockless: callers pass monotonic
+milliseconds); the referee is `adapters/fusion/tests/test_refresh_profile.py`, which first demonstrates
+the unbounded wrong-state window without the profile, then proves I6 under single loss, burst loss,
+total blackout, and recovery.
+
+### 2.8 The replay window (normative for tick-carrying bindings)
+
+Replay is handled at three levels, and the honest statement of each is part of the spec. Under the
+keyed layer (§2.5), replay is dead on arrival: the AEAD nonce is implicit from epoch+index, so a
+replayed packet fails authentication. On a **bare-profile stream whose transport binding carries a
+per-frame tick** (the ESP-NOW spiral binding's `[class, tick, value]`, §2.6), a consumer MUST apply a
+tick window: a frame whose tick is not strictly newer than the highest accepted tick is rejected,
+except that a binding declaring a reorder tolerance of `W` accepts a late tick iff it lies within the
+last `W` ticks and has not been seen (the IPsec/DTLS sliding-window shape; default `W = 0`, exact for
+single-hop links that cannot reorder). Rejections carry a distinct cause, `replay-duplicate` or
+`replay-stale`, so a receipt can say which check refused the frame. And a **bare datagram stream with
+no tick-carrying binding has no replay protection at all**: the keyed layer is the answer there, and
+this specification does not pretend otherwise.
+
+The window composes with the refresh profile (§2.7): a captured keyframe replayed after the stream
+moved on would otherwise regress the consumer's mirrored state; behind the window it is rejected as
+`replay-stale`. The tick is the same monotonic counter the receipt trail carries as `seq` where both
+exist; a binding SHOULD NOT run two counters. The window is receiver-side state over bytes already on
+the wire: no frame format changes, stream conformance (§4) is unchanged. Not claimed: the window is
+replay rejection, not authentication — a forger who can construct valid frames can construct fresh
+ticks; origin trust remains the keyed layer's or the transport's job (§6). Reference implementation
+`prismpath/telemetry/replay.py`; referee `adapters/fusion/tests/test_replay_window.py`.
+
+### 2.9 The concentrator profile (optional capability for bridge uplinks)
+
+The honest arithmetic first: a 2 to 3 byte decision inside a 28 byte IP+UDP envelope is
+header-dominated, so on an unconstrained IP link the per-datagram win over a verbose format is
+smaller than the payload arithmetic suggests. The concentrator is the answer where fleets uplink
+through a bridge: records from many streams concatenate into ONE datagram, amortizing the envelope
+across the fleet. A concentrated frame is a sequence of records `[stream_id][reading]`, packed
+bit-contiguously and padded to the byte only at the datagram: the stream id is itself
+Zeckendorf-coded (ids from 1), and the reading carries no length because the stream's codebook fixes
+its field count — codebook binding (I3) does the framing, so the zero-header property survives
+aggregation. A stream MAY appear multiple times in one datagram (a burst since the last uplink tick).
+
+- **Registry.** The demultiplexer holds a registry mapping stream id to the stream's signed policy
+  (hence its field count and codebook), agreed out of band exactly as the codebook itself (§2.1). The
+  id-to-policy binding is bridge configuration and SHOULD ride a signed artifact.
+- **Strict, fail-closed, whole-datagram.** An unknown stream id or a record truncated mid-reading
+  rejects the ENTIRE datagram with a distinct cause (`concentrator-unknown-stream`,
+  `concentrator-truncated`); trailing zero pad is the only legal tail. Partial delivery is forbidden:
+  a datagram that demuxes differently at two consumers is worse than a lost one.
+- **Composition.** Inner records are the output of existing conforming encoders; this layer never
+  re-encodes, so the certified codec paths are untouched. The kernel decode plane (v1) does not parse
+  concentrated frames; they demux in userspace or in a future decode-plane revision.
+
+Measured, frozen in the referee (28 byte IP+UDP envelope; link-layer framing varies by medium and is
+excluded): a 3-field reading costs 30 bytes per reading as per-node datagrams at any fleet size,
+versus 15.50 at fleet 2, 4.30 at fleet 10, and 2.06 at fleet 50 concentrated. At fleet size one the
+concentrator is pure cost (the stream id buys nothing) and is not the profile's use case. Reference
+implementation `prismpath/telemetry/concentrator.py`; referee `adapters/fusion/tests/test_concentrator.py`.
+
+### 2.10 Receipt streams (cause code carriage; optional capability, normative when declared)
+
+A receipt stream carries decision receipts over the wire, making refusal and deviation causes machine readable across endpoints. The profile carries the fields proven by the kernel receipt struct: decision identifiers (`prev_node`, `event`, `next_node`), the frame sequence tick (`seq`), and the refusal or deviation cause byte (`cause`) defined in the cause code registry (`docs/design/spec-cause-codes.md`).
+
+- **Declaration.** A receipt stream is declared the way every stream is declared: the stream's
+  signed codebook fixes exactly these five fields and their canonical order, agreed out of band
+  like the codebook itself (§2.1). No new frontmatter key and no new mechanism; a consumer whose
+  binding carries this field set applies this section's semantics.
+- **Canonical field order.** Fields ride in sorted field name order: `cause`, `event`, `next_node`, `prev_node`, `seq`.
+- **Cause carriage and density.** The cause code IS the symbol, carried under the standard
+  symbol plus one wire mapping (§2.2) with no special casing. Cause 0 (a clean decision) therefore
+  rides as wire integer 1 (`11`), the densest code on the wire; the whole u8 registry space (0 to
+  255) is representable.
+- **Composition.** Receipt streams compose cleanly with existing declared profiles:
+  - **Replay window (§2.8).** The `seq` field serves as the tick counter. Receiver tick checking rejects duplicate or stale receipts with `replay-duplicate` or `replay-stale`.
+  - **Concentrator (§2.9).** Receipt readings aggregate into concentrated datagrams. Codebook binding and Zeckendorf self framing preserve zero header framing across aggregated receipt streams.
+- **Out of scope.** This profile is cause carriage on the wire, not a full audit log schema. Carrying per reading Merkle proof paths, raw 64 bit nanosecond timestamps (`t_ns`), 64 bit policy hashes, or raw sensor payloads on every frame is explicitly out of scope. Session integrity rides the Merkle root (§2.4) and policy binding rides codebook agreement (§2.1).
+
+Reference implementation `prismpath/telemetry/receipts.py`; referees
+`prismpath/telemetry/tests/test_receipts.py` (frozen vectors,
+`prismpath/telemetry/conformance/receipts.json`) and
+`adapters/fusion/tests/test_receipts_profile.py` (profile composition).
+
 ---
 
 ## 3. Normative invariants
@@ -147,6 +290,10 @@ not salting, to be hidden on the wire.
 - **I4 (tamper evidence).** Each packet's Merkle root binds its readings into the audit chain.
 - **I5 (strategy invariance).** Decision fidelity is invariant under batching, compression, and
   encryption; only temporal fidelity (freshness) varies with strategy.
+- **I6 (bounded staleness, refresh profile only).** Under a declared refresh profile, at any instant a
+  consumer's acting state is the sender's current state, a state the sender held within the last
+  `refresh_stale_ms`, or the policy's signed fail-safe. (Proven under injected loss:
+  `test_refresh_profile.py`.)
 
 ---
 
@@ -156,7 +303,7 @@ An implementation conforms to `Facet/1` iff, for the committed policies and fixt
 byte identical codebook, (b) produces byte identical Facet streams (Figueroa quantization, then
 Zeckendorf coding and word packing), (c) round trips every reading with the decision preserved (I1),
 and (d) rejects the negative cases required by I2/I3. The reference implementation is the Python
-`adapters/telemetry/` kernel; conformance is defined against its committed outputs, exactly as `SPEC.md`
+`prismpath/telemetry/` kernel; conformance is defined against its committed outputs, exactly as `SPEC.md`
 defines flow format conformance against `prismpath/portable/conformance/`.
 
 ---
@@ -210,6 +357,10 @@ Facet's guarantees are precise, and its boundary is deliberate. Three tiers, fro
    anchored root; the bare wire alone is self checking, not integrity. Never describe Facet as
    "tamper proof."
 
+   Replay sits in this tier and follows the same gradient (§2.8): the keyed layer rejects it
+   outright; a tick-carrying binding rejects it via the mandatory tick window; a bare datagram
+   stream with neither has no replay protection, and no claim to any.
+
 3. **Execution faithfulness (guaranteed).** For the input Facet processes, the action provably matches
    the Figueroa quantization of that value (I1, proven three ways in `test_fusion_spiral.py`), decided
    byte identically on every certified substrate.
@@ -244,6 +395,6 @@ this list on purpose: they are the novel part.
 
 ---
 
-*Draft `Facet/1`. Provenance: `adapters/telemetry/{quantizer,wire,zeckendorf,packed}.py`,
+*Draft `Facet/1`. Provenance: `prismpath/telemetry/{quantizer,wire,zeckendorf,packed}.py`,
 `adapters/fusion/bench/wire.py`, `adapters/fusion/tests/{test_fusion_spiral,test_wire_tamper}.py`.
 Companion to `SPEC.md`.*

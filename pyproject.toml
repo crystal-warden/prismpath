@@ -53,14 +53,12 @@ test = ["pytest"]
 [project.scripts]
 prismpath = "prismpath.cli:main"
 
-[tool.setuptools]
-packages = [
-    "prismpath",
-    "prismpath.mission_control",   # the control plane's proving + observability command center
-    "prismpath.plugins",
-    "prismpath.plugins.pysprint",
-    "prismpath.tests",
-]
+[tool.setuptools.packages.find]
+# Every package under prismpath/ ships, found by its __init__.py, so a subpackage added to the tree
+# cannot be left out of the wheel by hand: the shipped test suite imports prismpath.comparisons and
+# prismpath.portable, and a hand kept list once omitted both (September 2026).
+where = ["."]
+include = ["prismpath*"]
 
 [tool.setuptools.package-data]
 # Everything here is READ AT RUNTIME by shipped code — not documentation. The prose docs live in
@@ -70,6 +68,7 @@ prismpath = ["flows/*.md",                    # example + reference flows
           "policies/*.md", "policies/*.json", # the guard's statutory floor + P1 lockfile
           "gallery/*.md", "gallery/*/*.md",   # `prismpath init --template` copies these
           "tests/fixtures/broken/*.md",       # the analyzer's broken-flow corpus (test_analysis)
+          "telemetry/conformance/*.json",     # the frozen Facet corpora every other implementation is judged by
           "*.html",
           "portable/*.mjs", "portable/*.html",
           "portable/conformance/*.json"]      # the frozen kernel spec
@@ -90,6 +89,7 @@ prismpath = ["flows/*.md",                    # example + reference flows
 "share/doc/prismpath/docs" = ["docs/*.md"]          # index + decoder ring
 "share/doc/prismpath/docs/guides" = ["docs/guides/*.md"]
 "share/doc/prismpath/docs/design" = ["docs/design/*.md"]
+"share/doc/prismpath/docs/research" = ["docs/research/*.md"]
 
 [project.urls]
 Homepage = "https://github.com/crystal-warden/prismpath"     # the clean product mirror (browse + quickstart)

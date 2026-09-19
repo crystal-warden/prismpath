@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Crystal Warden Supply Chain Labs LLC
 import pytest
-from prismpath.parser import parse, parse_file, Graph, Node, ParseError
-from prismpath import parser as _parser
+from prismpath.kernel.parser import parse, parse_file, Graph, Node, ParseError
+from prismpath.kernel import parser as _parser
+from prismpath.kernel import analysis
 
 def test_front_matter_parsing():
     text = """---
@@ -62,16 +63,16 @@ Instruction text.
 ## Next Node
 Done."""
     graph = parse(text)
-    assert graph.validate() == []
+    assert analysis.errors(graph) == []
 
     text = """## My Node
 Instruction text.
 -> next_node: always
 -> undefined_node: always"""
     graph = parse(text)
-    problems = graph.validate()
+    problems = analysis.errors(graph)
     assert problems  # non-empty: both targets are undefined
-    assert any("undefined_node" in p for p in problems)
+    assert any("undefined_node" in problem for problem in problems)
 
 def test_no_headings():
     text = "No headings here."
@@ -90,7 +91,7 @@ def test_oversized_text_rejected(monkeypatch):
 
 def test_too_many_nodes_rejected(monkeypatch):
     monkeypatch.setattr(_parser, "MAX_NODES", 3)
-    doc = "".join(f"## n{i}\nbody\n" for i in range(10))
+    doc = "".join(f"## n{index}\nbody\n" for index in range(10))
     with pytest.raises(ParseError) as ei:
         parse(doc)
     assert "MAX_NODES" in str(ei.value)
@@ -104,7 +105,7 @@ def test_repeated_heading_is_not_a_new_node(monkeypatch):
 
 def test_too_many_edges_rejected(monkeypatch):
     monkeypatch.setattr(_parser, "MAX_EDGES", 3)
-    doc = "## a\n" + "".join(f"-> t{i}: always\n" for i in range(10))
+    doc = "## a\n" + "".join(f"-> t{index}: always\n" for index in range(10))
     with pytest.raises(ParseError) as ei:
         parse(doc)
     assert "MAX_EDGES" in str(ei.value)

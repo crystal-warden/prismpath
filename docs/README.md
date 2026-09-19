@@ -4,6 +4,14 @@ Long form documentation lives here, in three groups. Start at the repo root if y
 [`README.md`](../README.md) is the front door and [`GETTING_STARTED.md`](../GETTING_STARTED.md)
 is the walk from "what's this?" to a running flow.
 
+> **[POSITION.md](POSITION.md)**: the public position: one sentence, the problem, the architecture in three
+> words, capability status, what the comparison established, the vocabulary contract, the claims we make
+> and the claims we do not. The README and the site are views over it.
+>
+> **[SYSTEM_MAP.md](SYSTEM_MAP.md)**: the whole system on one page: the four people who touch it,
+> where every part lives, and the conformance topology that keeps the many implementations of the
+> interpreter, the wire, and the signed pack in agreement.
+>
 > **[decoder-ring.md](decoder-ring.md)**: every borrowed term (Wilson interval, selective
 > classification, match action fragment, hexagonal ports) explained in plain language, plus an
 > index of every document, module, kernel, and CLI command in the repo. Start here if a paper
@@ -16,42 +24,51 @@ solved routing", "logic as data is a rules engine"), answered with the concessio
 
 | doc | what it covers |
 |---|---|
-| [tour.md](guides/tour.md) | the ten minute engineer's tour of the flow kernel: agent contract, routers, prefilter, static analysis, `verify`, fan out, attestation, the portable subset |
-| [authoring.md](guides/authoring.md) | the flow authoring reference: file anatomy, the four edge tiers, the agent contract, predicates, durable execution, annotations, plugins, fan out, the portable subset, and the invariants to preserve when extending |
+| [tour.md](guides/tour.md) | the ten minute engineer's tour of the flow kernel: worker contract, routers, prefilter, static analysis, `verify`, fan out, attestation, the portable subset |
+| [authoring.md](guides/authoring.md) | the flow authoring reference: file anatomy, the four edge tiers, the worker contract, predicates, durable execution, annotations, plugins, fan out, the portable subset, and the invariants to preserve when extending |
 | [workers.md](guides/workers.md) | run any program (Python, JS, Go, Rust, an existing binary) as a node's worker: the stdin/JSON/exit contract, worked examples in four languages across three jobs (CI gate, log alerting, semver release gate), error tier retry, per node engines |
 | [code-nodes.md](guides/code-nodes.md) | the Python function worker case: the `@code` capability envelope, the static gate, and the fail closed sandbox |
 | [frontier-agent-integration.md](guides/frontier-agent-integration.md) | pairing PrismPath with frontier agents and LLMs: CLI workers, API/local backends, auto unblock loops, `@spawn` swarms, human in the loop |
+| [process-owner.md](guides/process-owner.md) | the process owner's guide: the flow and its fixtures as the policy of record, how a change reaches production |
+| [engineer.md](guides/engineer.md) | the engineer's guide: the contract once, delivery, calibration, the kernels and the gates |
+| [assessor.md](guides/assessor.md) | the assessor's guide: receipts, the trail, anchors, the evidence base |
+| [operator.md](guides/operator.md) | the operator's day: Mission Control, swap and attest, short lived policy changes that expire by construction, reading the trail |
+| [mission-control-api.md](guides/mission-control-api.md) | the Mission Control API: observe, control, events, prove |
 
 ## design/: how and why it is built
 
 | doc | what it covers |
 |---|---|
-| [control-plane.md](design/control-plane.md) | the reference deployment: sprint loops, gates as the definition of done, Mission Control, the worked example |
-| [architecture.md](design/architecture.md) | the flow kernel, the portable kernels, the control plane, and the gate-plugin seam |
+| [orchestration.md](design/orchestration.md) | the reference deployment: the sprint loop, gates as the definition of done, Mission Control, the worked example |
+| [architecture.md](design/architecture.md) | the flow kernel, the portable kernels, the orchestration layer, and the gate-plugin seam |
 | [framework.md](design/framework.md) | the operating methodology: spec per module, gates as the definition of done, the hard won lessons |
 | [spec-guard-onion.md](design/spec-guard-onion.md) | formal design spec for the safety floor: the policy grammar with no verb for permitting |
 | [spec-ledger-opentimestamps.md](design/spec-ledger-opentimestamps.md) | formal design spec for Flow Ledger anchoring: OpenTimestamps, the air gap tier, and the honest caveats |
 | [spec-telemetry-cbor.md](design/spec-telemetry-cbor.md) | interop framing spec: carry the telemetry decision symbols in CBOR (RFC 8949) for friction free integration, alongside the compact Fibonacci wire |
 | [spec-secure-hotswap.md](design/spec-secure-hotswap.md) | formal design spec for the secure policy hot swap: authorized, envelope bounded, attested, audited + atomic, published deliberately as prior art |
+| [spec-cause-codes.md](design/spec-cause-codes.md) | the cause code registry: one byte that says why a decision or refusal happened, the same byte in the engine, the pack verifier, the kernel, the fabric, and on the wire |
+| [spec-crypto-agility.md](design/spec-crypto-agility.md) | the signing suite registry and the proofs that a suite migration cannot strand a policy |
 
 Running `python tools/arch_guard.py` writes a hexagonal boundary scorecard to
 `docs/design/arch-scorecard.md`. It is generated, git ignored, and regenerated on every run: the
-committed artifact is [`tools/arch_scorecard.json`](https://github.com/crystal-warden/prism-path/blob/main/tools/arch_scorecard.json).
+committed artifact is [`tools/arch_scorecard.json`](../tools/arch_scorecard.json).
 
 ## research/: papers, evidence, measurement
 
 | doc | what it covers |
 |---|---|
-| [primer-students-guide.md](https://github.com/crystal-warden/prism-path/blob/main/docs/research/primer-students-guide.md) | **start here for the ideas**: the papers' thesis without the vocabulary; no CS degree required |
-| [paper-routing-spectrum.md](https://github.com/crystal-warden/prism-path/blob/main/docs/research/paper-routing-spectrum.md) | the research paper: the routing spectrum, the N=301 evaluation, the head to head, limitations |
-| [whitepaper-engineering.md](https://github.com/crystal-warden/prism-path/blob/main/docs/research/whitepaper-engineering.md) | the engineering white paper: format, runtime, data plane, control plane, operational lessons |
-| [supporting-evidence.md](https://github.com/crystal-warden/prism-path/blob/main/docs/research/supporting-evidence.md) | the results ledger: every claim mapped to a measured result and its provenance, negative results included |
-| [bypass-measurement.md](https://github.com/crystal-warden/prism-path/blob/main/docs/research/bypass-measurement.md) | the pre registered protocol for measuring the safety floor's bypass rates, with its amendment trail |
+| [primer-students-guide.md](research/primer-students-guide.md) | **start here for the ideas**: the papers' thesis without the vocabulary; no CS degree required |
+| [paper-routing-spectrum.md](research/paper-routing-spectrum.md) | the research paper: the routing spectrum, the N=301 evaluation, the head to head, limitations |
+| [whitepaper-engineering.md](research/whitepaper-engineering.md) | the engineering white paper: format, runtime, data plane, control plane, operational lessons |
+| [supporting-evidence.md](research/supporting-evidence.md) | the results ledger: every claim mapped to a measured result and its provenance, negative results included |
+| [paper-facet-figueroa-quantization.md](research/paper-facet-figueroa-quantization.md) | the Facet paper: Figueroa quantization, the decision sufficient wire, the measurements |
+| [bypass-measurement.md](research/bypass-measurement.md) | the pre registered protocol for measuring the safety floor's bypass rates, with its amendment trail |
+| [LEDGER_STANDARDS.md](research/LEDGER_STANDARDS.md) | the ledger's row schema, dating, versioning, and the fold procedure |
 
 ## What isn't here (and why)
 
 - **Normative + entry point docs stay at the repo root**: [`SPEC.md`](../SPEC.md) (the format
-  specification), [`GETTING_STARTED.md`](../GETTING_STARTED.md), [`ROADMAP.md`](../ROADMAP.md),
+  specification), [`PROTOCOL.md`](../PROTOCOL.md) (the Facet wire), [`CONVENTIONS.md`](CONVENTIONS.md) (the adopter facing script conventions), [`GETTING_STARTED.md`](../GETTING_STARTED.md), [`ROADMAP.md`](../ROADMAP.md),
   plus the files GitHub reads there by convention (`CONTRIBUTING`, `CODE_OF_CONDUCT`, `SECURITY`,
   `CHANGELOG`, `LICENSE`, `CITATION.cff`).
 - **A `README.md` documents the directory it sits in**, so subsystem docs stay with their code:

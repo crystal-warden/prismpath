@@ -1,0 +1,425 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Crystal Warden Supply Chain Labs LLC
+"""ppt_compile.py — compile PrismPath Level M conditions/flows to PPT v1 table images.
+
+`compile --target table`, off-repo edition: uses the repo's own classifier
+(prismpath.model_check.is_level_m) as the fragment authority, so this compiler can never
+disagree with `prismpath verify --level-m` about what is compilable. See TABLE_FORMAT.md.
+
+CLI:  python3 ppt_compile.py <flow.md> [-o image.bin] [--json debug.json] [--max-steps N]
+"""
+from __future__ import annotations
+
+import ast
+import json
+import os
+import re
+import struct
+import sys
+from pathlib import Path
+
+def _find_pkg() -> str:
+    """The prismpath PACKAGE directory — the pc._REPO contract this tree's consumers rely on
+    (run_vectors and tb resolve `_REPO / "portable" / "conformance"`). PRISMPATH_REPO overrides
+    (point it at the package dir); else walk ancestors for a `prismpath` package, so the compiler
+    works from the in-repo tree and a sibling checkout alike."""
+    env = os.environ.get("PRISMPATH_REPO")
+    if env:
+        return env
+    for anc in Path(__file__).resolve().parents:
+        cand = anc / "prismpath"
+        if (cand / "__init__.py").exists():
+            return str(cand)
+        nested = anc / "prismpath" / "prismpath"
+        if (nested / "__init__.py").exists():
+            return str(nested)
+    return str(Path(__file__).resolve().parent.parent / "prismpath")
+
+
+_REPO = _find_pkg()
+_ROOT = str(Path(_REPO).parent)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from prismpath.kernel import predicates                     # noqa: E402
+from prismpath.kernel.analysis import _reachable            # noqa: E402
+from prismpath.kernel.model_check import _classify, _desugar_chains   # noqa: E402
+
+TY_NONE, TY_BOOL, TY_INT, TY_STR = 0, 1, 2, 3
+OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_TRUTHY = range(7)
+OPC_NOT, OPC_AND, OPC_OR, OPC_TRUE, OPC_FALSE = 0x8000, 0x8001, 0x8002, 0x8003, 0x8004
+I32_MIN, I32_MAX = -(2 ** 31), 2 ** 31 - 1
+MAGIC = 0x4D545050          # "PPTM"
+VISITS_NONE = 0xFFFF
+
+_OP_NAME = {OP_EQ: "==", OP_NE: "!=", OP_LT: "<", OP_LE: "<=", OP_GT: ">", OP_GE: ">=",
+            OP_TRUTHY: "truthy"}
+_TY_NAME = {TY_NONE: "none", TY_BOOL: "bool", TY_INT: "int", TY_STR: "str"}
+_AST_OP = {ast.Eq: OP_EQ, ast.NotEq: OP_NE, ast.Lt: OP_LT, ast.LtE: OP_LE,
+           ast.Gt: OP_GT, ast.GtE: OP_GE}
+_FLIP = {OP_LT: OP_GT, OP_LE: OP_GE, OP_GT: OP_LT, OP_GE: OP_LE, OP_EQ: OP_EQ, OP_NE: OP_NE}
+
+# Per-node LED color, authored in the node prose ("RGB LEDs <color>") and compiled INTO the signed
+# table so the fabric — not the host — drives the light. 6-bit code {LD5[2:0], LD4[2:0]}, each a
+# {R,G,B} bit; only LD4 (low 3 bits) is used today. Colors are additive: a flow with no LED prose
+# sets the header flags word to 0 and appends no color section, so it stays byte-identical to a
+# pre-color build (the frozen corpus is untouched). See TABLE_FORMAT.md.
+FLAG_COLORS = 0x0001
+# Resident-FSM (stateful selector) declarations, byte-identical to the kernel image flags
+# (prismpath-ebpf/ppt_common.h): the mode is a signed property of the pack, declared not negotiated.
+# safe_node rides the high byte of the same flags word (offset 26), covered by the image hash.
+FLAG_MIGRATE_BY_NAME = 0x0002
+FLAG_STATEFUL        = 0x0008
+_LED_COLORS = {"red": 0x01, "green": 0x02, "blue": 0x04, "yellow": 0x03, "amber": 0x03,
+               "cyan": 0x06, "magenta": 0x05, "purple": 0x05, "white": 0x07,
+               "off": 0x00, "none": 0x00}
+_LED_RE = re.compile(r"RGB\s+LEDs?\s+(\w+)", re.IGNORECASE)
+
+
+def parse_led_color(instruction: str) -> int:
+    """A node's LED color from its prose: the word after 'RGB LED(s)'. 0 (off) when absent —
+    non-outcome nodes never light. Unknown color words -> 0."""
+    led_match = _LED_RE.search(instruction or "")
+    return _LED_COLORS.get(led_match.group(1).lower(), 0) if led_match else 0
+
+
+class SubsetError(ValueError):
+    """The condition/flow/value is outside the declared v0 subset. `reason` is a stable code
+    the harness aggregates in its exclusion report."""
+
+    def __init__(self, reason: str, detail: str = ""):
+        self.reason = reason
+        super().__init__(f"{reason}{': ' + detail if detail else ''}")
+
+
+def encode_scalar(value, intern: dict) -> tuple:
+    """A Python scalar -> (type, i32). Mutates `intern` (str -> id; '' is id 0)."""
+    if value is None:
+        return TY_NONE, 0
+    if isinstance(value, bool):
+        return TY_BOOL, int(value)
+    if isinstance(value, int):
+        if not I32_MIN <= value <= I32_MAX:
+            raise SubsetError("int-out-of-i32", repr(value))
+        return TY_INT, value
+    if isinstance(value, float):
+        raise SubsetError("float-value", repr(value))
+    if isinstance(value, str):
+        if value not in intern:
+            intern[value] = len(intern)
+        return TY_STR, intern[value]
+    raise SubsetError("non-scalar-value", type(value).__name__)
+
+
+# _desugar_chains lives in prismpath.model_check (imported above) — the ONE normalization the
+# classifier and this compiler share, so `verify --level-m` and the table compiler can never
+# disagree about chained comparisons (SPEC §4.3: tooling SHOULD desugar them).
+
+
+class TableImage:
+    def __init__(self, max_steps: int = 25):
+        self.max_steps = max_steps
+        self.fields: dict = {}                 # name -> register index
+        self.intern: dict = {"": 0}            # string -> id
+        self.atoms: list = []                  # (field_idx, op, ty, val)
+        self._atom_ix: dict = {}
+        self.nodes: list = []                  # (name, [(target_idx, condition, program)])
+        self.node_colors: list = []            # 6-bit LED color per node (parallel to self.nodes)
+        self.stateful = False                  # frontmatter `stateful: true` -> FLAG_STATEFUL
+        self.migrate_by_name = False           # frontmatter `migration: by-name` -> FLAG_MIGRATE_BY_NAME
+        self.safe_node: int | None = None      # frontmatter `safe: <node>` -> flags[15:8]
+        self.start = 0
+        self.skipped_tiers: list = []          # host-side (error/event) edges, debug view only
+
+    # ---------------------------------------------------------------- construction
+    def field(self, name: str) -> int:
+        return self.fields.setdefault(name, len(self.fields))
+
+    def atom(self, fidx: int, op: int, ty: int, val: int) -> int:
+        key = (fidx, op, ty, val)
+        if key not in self._atom_ix:
+            self._atom_ix[key] = len(self.atoms)
+            self.atoms.append(key)
+        return self._atom_ix[key]
+
+    def _prog_expr(self, node) -> list:
+        if isinstance(node, ast.Name):
+            return [self.atom(self.field(node.id), OP_TRUTHY, TY_NONE, 0)]
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return self._prog_expr(node.operand) + [OPC_NOT]
+        if isinstance(node, ast.BoolOp):
+            opc = OPC_AND if isinstance(node.op, ast.And) else OPC_OR
+            prog: list = []
+            for index, operand in enumerate(node.values):
+                prog += self._prog_expr(operand)
+                if index:
+                    prog.append(opc)
+            return prog
+        if isinstance(node, ast.Compare):
+            left, op, right = node.left, node.ops[0], node.comparators[0]
+            if isinstance(op, (ast.In, ast.NotIn)):
+                fidx = self.field(left.id)
+                if not right.elts:
+                    prog = [OPC_FALSE]
+                else:
+                    prog = []
+                    for index, element in enumerate(right.elts):
+                        ty, val = encode_scalar(element.value, self.intern)
+                        prog.append(self.atom(fidx, OP_EQ, ty, val))
+                        if index:
+                            prog.append(OPC_OR)
+                if isinstance(op, ast.NotIn):
+                    prog.append(OPC_NOT)
+                return prog
+            opc = _AST_OP.get(type(op))
+            if opc is None:
+                # the repo classifier accepts `is`/`is not` (soundness gap, flagged upstream);
+                # the evaluator rejects them, so they are outside the fragment here too
+                raise SubsetError(f"not-level-m:disallowed-op-{type(op).__name__}")
+            if isinstance(left, ast.Name):
+                fidx = self.field(left.id)
+                ty, val = encode_scalar(right.value, self.intern)
+            else:                               # constant OP field -> flip orientation
+                fidx = self.field(right.id)
+                ty, val = encode_scalar(left.value, self.intern)
+                opc = _FLIP[opc]
+            return [self.atom(fidx, opc, ty, val)]
+        raise SubsetError("not-level-m", type(node).__name__)   # unreachable post-classifier
+
+    def compile_condition(self, cond: str) -> list:
+        if not predicates.is_deterministic(cond):
+            raise SubsetError("non-deterministic-edge", cond)
+        expr = predicates._expr_of(cond)
+        if expr.lower() in predicates.ALWAYS:
+            return [OPC_TRUE]
+        if expr.lower() in predicates.NEVER:
+            return [OPC_FALSE]
+        # the evaluator's own static gate first (rejects `is`, calls, unparseable — everything
+        # the corpus records as "ERROR"), so check/eval/compile accept the same language
+        if predicates.check_predicate(cond):
+            raise SubsetError("not-level-m:disallowed-or-unparseable")
+        tree = _desugar_chains(predicates.fold_unary_signs(ast.parse(expr, mode="eval").body))
+        # fragment membership judged by the repo classifier — applied AFTER the mechanical
+        # chain desugar the SPEC says tooling SHOULD perform (§4.3)
+        reason = _classify(tree)
+        if reason is not None:
+            raise SubsetError(f"not-level-m:{reason}")
+        return self._prog_expr(tree)
+
+    # ---------------------------------------------------------------- serialization
+    @staticmethod
+    def _stack_depth(prog: list) -> int:
+        depth = peak = 0
+        for word in prog:
+            if word < 0x8000 or word in (OPC_TRUE, OPC_FALSE):
+                depth += 1
+            elif word in (OPC_AND, OPC_OR):
+                depth -= 1
+            peak = max(peak, depth)
+        # a raise, not an assert: this is the only check that a compiled program is well formed, and
+        # python -O drops asserts, which would let a malformed image reach every substrate unexamined.
+        # Depth 0 is the empty program the evaluators have nothing to return; depth above 1 is a leftover.
+        if depth != 1:
+            raise ValueError(f"malformed program (final depth {depth})")
+        return peak
+
+    def serialize(self) -> bytes:
+        prog_blob: list = []
+        edges: list = []                        # (target, off, cnt)
+        node_recs: list = []                    # (edge_off, edge_cnt)
+        max_stack = 1
+        for _name, nedges in self.nodes:
+            node_recs.append((len(edges), len(nedges)))
+            for target, _cond, prog in nedges:
+                edges.append((target, len(prog_blob), len(prog)))
+                prog_blob.extend(prog)
+                max_stack = max(max_stack, self._stack_depth(prog))
+        visits_idx = self.fields.get("visits", VISITS_NONE)
+        colors = (list(self.node_colors) + [0] * len(self.nodes))[:len(self.nodes)]
+        flags = FLAG_COLORS if any(colors) else 0            # 0 -> no color section (byte-identical)
+        if self.stateful:
+            flags |= FLAG_STATEFUL
+        if self.migrate_by_name:
+            flags |= FLAG_MIGRATE_BY_NAME
+        if self.safe_node is not None:
+            flags |= (self.safe_node & 0xFF) << 8            # signed fail-safe, rides the image hash
+        out = struct.pack("<IHHHHHHHHHHHH", MAGIC, 1,
+                          len(self.fields), len(self.intern), len(self.atoms),
+                          len(self.nodes), len(edges), len(prog_blob),
+                          self.start, visits_idx, self.max_steps, max_stack, flags)
+        for fidx, op, ty, val in self.atoms:
+            out += struct.pack("<HBBi", fidx, op, ty, val)
+        for edge_offset, edge_count in node_recs:
+            out += struct.pack("<HH", edge_offset, edge_count)
+        for edge_target, prog_offset, prog_count in edges:
+            out += struct.pack("<HHH", edge_target, prog_offset, prog_count)
+        for word in prog_blob:
+            out += struct.pack("<H", word)
+        if flags & FLAG_COLORS:                              # appended last: one uint16 color / node
+            for color in colors:
+                out += struct.pack("<H", color & 0xFFFF)
+        return out
+
+    def debug(self) -> dict:
+        def dis(prog):
+            names = {OPC_NOT: "NOT", OPC_AND: "AND", OPC_OR: "OR",
+                     OPC_TRUE: "TRUE", OPC_FALSE: "FALSE"}
+            return [f"ATOM {word}" if word < 0x8000 else names[word] for word in prog]
+        inv_f = {index: name for name, index in self.fields.items()}
+        colors = (list(self.node_colors) + [0] * len(self.nodes))[:len(self.nodes)]
+        return {
+            "format": "PPT", "version": 1, "max_steps": self.max_steps,
+            "fields": self.fields,
+            "intern": self.intern,
+            "atoms": [{"i": atom_index, "field": inv_f[field_index], "op": _OP_NAME[op],
+                       "type": _TY_NAME[ty], "val": val}
+                      for atom_index, (field_index, op, ty, val) in enumerate(self.atoms)],
+            "start": self.start,
+            "colors_present": bool(any(colors)),
+            "stateful": self.stateful,
+            "migration": ("by-name" if self.migrate_by_name else
+                          ("reset-to" if self.stateful else None)),
+            "safe_node": self.safe_node,
+            "wcet_cycles": (max(sum(2 + max(len(program), 1) for _, _, program in node_edges) + 2
+                                for _, node_edges in self.nodes) if self.nodes else 2),
+            "nodes": [{"i": node_index, "name": name, "color": colors[node_index],
+                       "edges": [{"target": target, "condition": condition, "program": dis(program)}
+                                 for target, condition, program in nedges]}
+                      for node_index, (name, nedges) in enumerate(self.nodes)],
+            "host_side_edges": [{"node": name, "target": target, "condition": condition}
+                                for name, target, condition in self.skipped_tiers],
+        }
+
+
+# -------------------------------------------------------------------- entry points
+
+def compile_flow(graph, max_steps: int = 25) -> TableImage:
+    """A parsed prismpath Graph -> image of its REACHABLE deterministic tier (SPEC §7 computes
+    portability over reachable edges; the engine cannot visit an unreachable node, so dropping
+    them is exact). Every reachable deterministic edge must be Level M; error/event edges are
+    skipped (the host's tiers — the fabric is never consulted for them); a reachable semantic
+    edge is outside v0 entirely (the engine would release the semantic tier where the table
+    says stuck)."""
+    img = TableImage(max_steps)
+    reach = _reachable(graph)
+    names = [name for name in graph.nodes if name in reach]      # document order, reachable only
+    idx = {name: index for index, name in enumerate(names)}
+    if graph.start not in idx:
+        raise SubsetError("bad-start", graph.start)
+    skipped = []
+    for name in names:
+        nedges = []
+        for target, cond in graph.nodes[name].edges:
+            if predicates.is_error(cond) or predicates.is_event(cond):
+                skipped.append((name, target, cond))
+                continue
+            if predicates.is_semantic(cond):
+                raise SubsetError("semantic-edge", cond)
+            if target not in idx:
+                raise SubsetError("dangling-target", target)
+            nedges.append((idx[target], cond, img.compile_condition(cond)))
+        img.nodes.append((name, nedges))
+        img.node_colors.append(parse_led_color(graph.nodes[name].instruction))
+    img.start = idx[graph.start]
+    img.skipped_tiers = skipped
+    # Resident-FSM declarations (frontmatter beyond name/start rides graph.meta). Same author-time
+    # discipline as the kernel lint: a stateful pack must decide its fail-safe and its migration.
+    meta = getattr(graph, "meta", {}) or {}
+    img.stateful = str(meta.get("stateful", "")).strip().lower() in ("true", "yes", "1")
+    if img.stateful:
+        safe = str(meta.get("safe", "")).strip()
+        if not safe:
+            raise SubsetError("stateful-safe-undeclared", graph.start)
+        if safe not in idx:
+            raise SubsetError("dangling-safe-node", safe)
+        img.safe_node = idx[safe]
+        migration = str(meta.get("migration", "")).strip().lower()
+        if migration not in ("by-name", "reset-to"):
+            raise SubsetError("stateful-migration-undeclared", migration or "<missing>")
+        img.migrate_by_name = (migration == "by-name")
+    return img
+
+
+def compile_predicate(cond: str) -> TableImage:
+    """One condition -> a 2-node image: node 0 has the single conditional edge to terminal
+    node 1. evaluate(node 0) matching edge 0 = true; no match = false."""
+    img = TableImage(max_steps=1)
+    prog = img.compile_condition(cond)
+    img.nodes = [("p", [(1, cond, prog)]), ("t", [])]
+    img.start = 0
+    return img
+
+
+def encode_regs(img: TableImage, ctx: dict, node_idx: int = 0) -> bytes:
+    """A predicate-vector ctx -> regs.bin. Only fields the image reads are encoded; runtime
+    strings extend a copy of the compile-time intern map (fresh ids compare unequal to every
+    authored constant, truthy iff non-empty — exactly the runtime contract)."""
+    intern = dict(img.intern)
+    out = struct.pack("<I", node_idx)
+    by_idx = sorted(img.fields.items(), key=lambda field_entry: field_entry[1])
+    for field_name, _register_index in by_idx:
+        ty, val = encode_scalar(ctx.get(field_name), intern)
+        out += struct.pack("<ii", ty, val)
+    return out
+
+
+def encode_script(img: TableImage, script: dict) -> bytes:
+    """flows.json script -> script.bin (see TABLE_FORMAT.md). Mirrors engine._normalize and
+    the scripted-agent protocol: unscripted node -> {'text': node_name}; bare value -> its
+    str(); only fields the image reads are encoded; suspending/raising outcomes are outside
+    the subset."""
+    intern = dict(img.intern)
+    by_idx = sorted(img.fields.items(), key=lambda field_entry: field_entry[1])
+    out = struct.pack("<I", len(img.nodes))
+    for name, _edges in img.nodes:
+        seq = script.get(name)
+        if seq is None:
+            seq = [{"text": name}]
+        out += struct.pack("<I", len(seq))
+        for outcome in seq:
+            if isinstance(outcome, dict):
+                if "__raise__" in outcome:
+                    raise SubsetError("script-raises")
+                fields = outcome
+            else:
+                fields = {"text": str(outcome)}
+            if fields.get("needs_human") or fields.get("wait") or \
+                    fields.get("spawn") is not None:
+                raise SubsetError("script-suspends")
+            for field_name, _register_index in by_idx:
+                ty, val = encode_scalar(fields.get(field_name), intern)
+                out += struct.pack("<ii", ty, val)
+    return out
+
+
+def main() -> int:
+    import argparse
+    arg_parser = argparse.ArgumentParser(description=__doc__)
+    arg_parser.add_argument("flow_md")
+    arg_parser.add_argument("-o", "--out", default=None)
+    arg_parser.add_argument("--json", dest="json_out", default=None)
+    arg_parser.add_argument("--max-steps", type=int, default=25)
+    args = arg_parser.parse_args()
+
+    from prismpath.kernel.parser import parse_file
+    graph = parse_file(args.flow_md)
+    try:
+        img = compile_flow(graph, args.max_steps)
+    except SubsetError as error:
+        print(f"NOT TABLE-COMPILABLE: {error}")
+        return 1
+    blob = img.serialize()
+    out = args.out or (Path(args.flow_md).stem + ".ppt")
+    Path(out).write_bytes(blob)
+    dbg = img.debug()
+    if args.json_out:
+        Path(args.json_out).write_text(json.dumps(dbg, indent=1) + "\n")
+    print(f"{out}: {len(blob)}B  fields={len(img.fields)} interns={len(img.intern)} "
+          f"atoms={len(img.atoms)} nodes={len(img.nodes)} "
+          f"edges={sum(len(node_edges) for _, node_edges in img.nodes)}  wcet={dbg['wcet_cycles']}cyc")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

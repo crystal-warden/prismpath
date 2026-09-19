@@ -25,8 +25,8 @@ it (reconciled to 114 to match the FPGA). These pins make the next such drift lo
 import json
 from pathlib import Path
 
-from prismpath import model_check as mc
-from prismpath.parser import parse_file
+from prismpath.kernel import model_check as mc
+from prismpath.kernel.parser import parse_file
 
 _CONF = Path(__file__).resolve().parent.parent / "portable" / "conformance"
 _GALLERY = Path(__file__).resolve().parent.parent / "gallery"
@@ -43,9 +43,9 @@ def test_corpus_size_pinned():
 def test_level_m_fragment_count_pinned():
     """If this changes, a corpus or classifier edit shifted the Level M fragment — deliberate or not.
     Update the pin AND reconcile the FPGA/eBPF declared-subset numbers (README, evidence #72/#77)."""
-    lm = [c for c in _cases() if mc.is_level_m(c["cond"])[0]]
+    lm = [case for case in _cases() if mc.is_level_m(case["cond"])[0]]
     assert len(lm) == 136, f"Level M case count drifted to {len(lm)} (was 136)"
-    assert len({c["cond"] for c in lm}) == 126
+    assert len({case["cond"] for case in lm}) == 126
 
 
 def test_classifier_compiler_gap_pinned():
@@ -56,18 +56,16 @@ def test_classifier_compiler_gap_pinned():
     back) — investigate, don't just re-pin. Skips if the hardware compiler isn't on the path (it lives
     outside the package)."""
     import sys as _sys
-    _hw = Path(__file__).resolve().parent.parent.parent / "prismpath-hw"
-    if not (_hw / "ppt_compile.py").exists():
-        import pytest as _pytest
-        _pytest.skip("prismpath-hw/ppt_compile not present")
+    from prismpath.tests._repo import repo_file
+    _hw = repo_file("prismpath-hw")
     _sys.path.insert(0, str(_hw))
     import ppt_compile as pc
 
-    classifier = {c["cond"] for c in _cases() if mc.is_level_m(c["cond"])[0]}
+    classifier = {case["cond"] for case in _cases() if mc.is_level_m(case["cond"])[0]}
     compiler = set()
-    for c in _cases():
+    for case in _cases():
         try:
-            pc.compile_predicate(c["cond"]); compiler.add(c["cond"])
+            pc.compile_predicate(case["cond"]); compiler.add(case["cond"])
         except Exception:
             pass
     assert compiler - classifier == set(), \

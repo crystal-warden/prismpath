@@ -16,7 +16,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent))
 
-from prismpath.context_ledger import ContextLedger, verify_chain  # noqa: E402
+from prismpath.ledgers.context_ledger import ContextLedger, verify_chain  # noqa: E402
+from prismpath import canon
 
 OUT = HERE / "conformance" / "context.json"
 
@@ -46,19 +47,18 @@ def main() -> int:
         for role, content, salt in spec["segments"]:
             led.commit(role, content, salt_secret=salt)
         assert verify_chain(led.segments)
-        m = led.attest(spec["attest"]["policy_hash"], spec["attest"]["gate_id"],
+        manifest = led.attest(spec["attest"]["policy_hash"], spec["attest"]["gate_id"],
                        spec["attest"]["model_id"])
-        m["created"] = "2026-08-12T00:00:00Z"      # re-pin deterministically…
-        body = json.dumps({k: m[k] for k in m if k != "manifest_hash"}, sort_keys=True).encode()
-        m["manifest_hash"] = hashlib.sha256(body).hexdigest()   # …and re-address
+        manifest["created"] = "2026-08-12T00:00:00Z"      # re-pin deterministically…
+        manifest["manifest_hash"] = canon.manifest_hash(manifest)   # …and re-address
         cases.append({"name": spec["name"],
-                      "inputs": [{"role": r, "content": c, "salt": s}
-                                 for r, c, s in spec["segments"]],
+                      "inputs": [{"role": role, "content": content, "salt": salt}
+                                 for role, content, salt in spec["segments"]],
                       "attest_inputs": spec["attest"],
                       "segments": led.segments,
                       "head": led.head(),
                       "root": led.root(),
-                      "manifest": m})
+                      "manifest": manifest})
     doc = {"version": 1,
            "note": "Context-ledger fixtures from the Python reference: the Rust mirror must "
                    "reproduce every segment leaf/chain, head, root, and the bound manifest "

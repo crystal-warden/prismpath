@@ -27,24 +27,24 @@ import struct
 import sys
 from pathlib import Path
 
-import numpy as np
-
-from prismpath.engine import run
-from prismpath.parser import parse
-from prismpath.router import LockedEmbeddingRouter
+from prismpath.kernel.engine import run
+from prismpath.kernel.parser import parse
+from prismpath.routing.router import LockedEmbeddingRouter
 
 OUT_DIR = Path(__file__).parent / "conformance"
 VERSION = 1
 
 
-def _encode_vec(v) -> str:
-    return base64.b64encode(np.asarray(v, dtype="<f4").tobytes()).decode("ascii")
+def _encode_vec(vector) -> str:
+    import numpy as np
+    return base64.b64encode(np.asarray(vector, dtype="<f4").tobytes()).decode("ascii")
 
 
-def _unit(v):
-    a = np.asarray(v, dtype="float32")
-    n = np.linalg.norm(a)
-    return a / n if n > 0 else a
+def _unit(vector):
+    import numpy as np
+    vector_array = np.asarray(vector, dtype="float32")
+    vector_norm = np.linalg.norm(vector_array)
+    return vector_array / vector_norm if vector_norm > 0 else vector_array
 
 
 def _scripted_agent(script: dict):
@@ -53,9 +53,9 @@ def _scripted_agent(script: dict):
         seq = script.get(node)
         if seq is None:
             return {"text": node}
-        i = used.get(node, 0)
-        used[node] = i + 1
-        outcome = seq[min(i, len(seq) - 1)]
+        call_index = used.get(node, 0)
+        used[node] = call_index + 1
+        outcome = seq[min(call_index, len(seq) - 1)]
         if isinstance(outcome, dict) and "__raise__" in outcome:
             raise RuntimeError(outcome["__raise__"])
         return outcome
@@ -246,7 +246,7 @@ FIXTURES.append({
 
 
 def _run_fixture(fx):
-    from prismpath.lockfile import _decode_vec
+    from prismpath.routing.lockfile import _decode_vec
 
     conds = {}
     for text, b64 in fx["lock"]["conditions"].items():
@@ -258,17 +258,17 @@ def _run_fixture(fx):
 
     embed_map = {text: _decode_vec(b64) for text, b64 in fx["embedMap"].items()}
 
-    import prismpath.embedder as emb_mod
+    import prismpath.routing as emb_mod
     _orig_embed = emb_mod.embed
     def _stub_embed(texts, is_query=False):
         vecs = []
-        for t in texts:
+        for probe_text in texts:
             if is_query:
-                t = t.replace(emb_mod.QUERY_INSTRUCTION, "")
-            v = embed_map.get(t)
-            if v is None:
-                v = np.zeros(fx["lock"]["embedder"]["dim"], dtype="float32")
-            vecs.append(v)
+                probe_text = probe_text.replace(emb_mod.QUERY_INSTRUCTION, "")
+            vector = embed_map.get(probe_text)
+            if vector is None:
+                vector = np.zeros(fx["lock"]["embedder"]["dim"], dtype="float32")
+            vecs.append(vector)
         return np.array(vecs, dtype="float32")
     emb_mod.embed = _stub_embed
 

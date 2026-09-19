@@ -13,10 +13,11 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import control, core, edit, events, observe, prove
+from . import (attest, control, core, edit, events, inspect, observe,
+               picker, policy, prove, quality)
 
 API_PREFIX = "/api/v1"
-STATIC_DIR = os.path.join(core.PKG_DIR, "static")
+STATIC_DIR = os.path.join(core.SETTINGS.package_dir, "static")
 
 app = FastAPI(
     title="PrismPath Mission Control",
@@ -30,6 +31,11 @@ app.include_router(observe.router, prefix=API_PREFIX)
 app.include_router(control.router, prefix=API_PREFIX)
 app.include_router(edit.router, prefix=API_PREFIX)
 app.include_router(events.router, prefix=API_PREFIX)
+app.include_router(inspect.router, prefix=API_PREFIX)
+app.include_router(quality.router, prefix=API_PREFIX)
+app.include_router(attest.router, prefix=API_PREFIX)
+app.include_router(policy.router, prefix=API_PREFIX)
+app.include_router(picker.router, prefix=API_PREFIX)
 
 
 def _envelope(status_code: int, message: str) -> JSONResponse:
@@ -54,7 +60,9 @@ async def _validation_error(request: Request, exc: RequestValidationError):
 
 @app.exception_handler(Exception)
 async def _unhandled(request: Request, exc: Exception):
-    return _envelope(500, str(exc))
+    # The exception text carries internal paths and library detail; the operator reads it in the
+    # server log (the traceback is already there), the HTTP body says only that it failed.
+    return _envelope(500, "internal error")
 
 
 @app.middleware("http")
@@ -63,8 +71,8 @@ async def _limit_body_size(request: Request, call_next):
     single-user, but an accidental multi-GB POST must not OOM it. This is a Content-Length gate; a chunked
     body without a length still hits the per-endpoint size check downstream (edit.write_file)."""
     cl = request.headers.get("content-length")
-    if cl is not None and cl.isdigit() and int(cl) > core.MAX_FILE_BYTES:
-        return _envelope(413, f"request body exceeds MC_MAX_FILE_BYTES ({core.MAX_FILE_BYTES} bytes)")
+    if cl is not None and cl.isdigit() and int(cl) > core.SETTINGS.max_file_bytes:
+        return _envelope(413, f"request body exceeds MC_MAX_FILE_BYTES ({core.SETTINGS.max_file_bytes} bytes)")
     return await call_next(request)
 
 
