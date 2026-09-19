@@ -25,11 +25,14 @@ pytestmark = [pytest.mark.cross_language,
 
 from prismpath.tests._repo import repo_file
 
-CRATE = repo_file("prismpath-rs")
 CORPUS = Path(__file__).resolve().parent.parent / "portable" / "conformance"
 
 
 def test_rust_kernel_is_conformant():
+    # The crate lives beside the package only in a source checkout; asking for it inside the test,
+    # not at import, keeps the module collectable from an installed wheel and lets the marker
+    # deselect it before any skip is reported.
+    CRATE = repo_file("prismpath-rs")
     proc = subprocess.run(
         [CARGO, "run", "-q", "--bin", "conformance", "--", str(CORPUS)],
         cwd=CRATE,

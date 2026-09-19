@@ -14,7 +14,7 @@ SAFETY: this router exposes only reading and verifying. The mutating and publish
 (anchor, upgrade, export-request, relay-stamp, import-proofs) stamp timestamp calendars or change the
 ledger, so they are deliberately absent here. There is no code path in this file that anchors, upgrades,
 relays, exports, or imports. Paths that name files are confined to the followed project the way the edit
-router confines them (core._safe against core.STATE["proj"]); a path that escapes fails closed with a
+router confines them (core.safe_path against core.STATE["proj"]); a path that escapes fails closed with a
 client error rather than reading anywhere on disk.
 """
 import os
@@ -153,9 +153,9 @@ def ledger_verify(req: LedgerVerifyReq):
 # --------------------------------------------------------------------------- helpers
 def _confine(rel: str) -> str:
     """Resolve a request path against the followed project, refusing anything that escapes it. A
-    traversal raises ValueError from core._safe, which we translate to a client error (fail closed)."""
+    traversal raises ValueError from core.safe_path, which we translate to a client error (fail closed)."""
     try:
-        return core._safe(core.STATE["proj"], rel)
+        return core.safe_path(core.STATE["proj"], rel)
     except ValueError:
         raise HTTPException(status_code=400, detail="path escapes the project")
 

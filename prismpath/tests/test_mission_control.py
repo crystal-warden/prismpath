@@ -177,3 +177,15 @@ def test_file_tree_bounded(client, proj, monkeypatch):
     for i in range(10):
         (proj / "flows" / f"f{i}.md").write_text("hi", encoding="utf-8")
     assert len(client.get(API_V1 + "/files").json()["files"]) <= 3
+
+
+# ── the inspect and policy panels resolve project relative paths through the facade ─────────
+def test_inspect_validate_resolves_a_project_relative_flow(client):
+    """The panels confine every client supplied path with core.safe_path; a panel that names a helper
+    the facade does not export returns a 500 for every request, which is what the acceptance smoke
+    caught. A project relative flow validates, and a path that escapes the project is refused."""
+    ok = client.post(API_V1 + "/inspect/validate", json={"flow_md": "flows/triage.md"})
+    assert ok.status_code == 200, ok.text
+    escaped = client.post(API_V1 + "/inspect/validate", json={"flow_md": "../../etc/passwd"})
+    assert escaped.status_code == 400
+
