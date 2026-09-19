@@ -6,7 +6,55 @@ frozen conformance vectors that changes an existing case bumps the spec version,
 is the spec-change review. Pre-1.0, minor versions may break APIs; the flow *format* is already
 spec stable.
 
-## [Unreleased]
+## [Unreleased] · the product repository
+
+This repository became the self contained developer product on 2026-09-19, seeded from the research
+repository crystal-warden/prism-path at commit 40a9b05b3523cb4943b583b77c6fb86f93d795ee onto the
+previous public repository's history (9129c27). The sections below this one are the research
+changelog as adopted at that commit; the entries here are the product's own.
+
+### Added
+- The four Rust crates (prismpath-rs, prismpath-telemetry-rs, prismpath-hotswap-rs, prismpath-preflight),
+  each self contained: its tests read byte identical corpus copies under its own `tests/fixtures/`.
+- The Facet wire in Python (`prismpath.telemetry`) with its tests and frozen corpora; the previous public
+  repository carried the older adapter under `adapters/telemetry`.
+- The table compiler as a package module, `python -m prismpath.kernel.ppt_compile`, with thirteen frozen
+  regression references and the historical incident_severity image (`prismpath/tests/fixtures/compiler`).
+- The Facet cutover verifier as a package module, `python -m prismpath.telemetry.canary_verify`.
+- Mission Control with the September regroup of the package, the CLI runtime panels and file pickers.
+- `COMPATIBILITY.md`, `DIVERGENCES.md`, `PROVENANCE.md`, `SHA256SUMS`, the product Dictionary subset,
+  and the maintenance tools under `tools/` with their tests under `tools/tests/`.
+
+### Changed
+- Mission Control's audit log defaults to the platform state directory (`MC_AUDIT` still overrides) and
+  a sprint launch runs the installed module under the console's interpreter in the followed project.
+- `prismpath compile` is withdrawn: it built a bundle around the JavaScript engine, which is not carried.
+  An explicit call exits 2 with a message; `prismpath portable` is unchanged.
+- pyproject: the readme is `README.md`, the comparisons extra is gone, the JavaScript package data is
+  gone, the fixtures ship with the tests, every URL points at this repository.
+
+### Removed, relative to the previous public repository (9129c27)
+Adopters who used these find them in research at the adopted revision.
+- The Go kernel (`prismpath-go/`), the standalone JavaScript kernel and playground
+  (`prismpath/portable/*.mjs`, `playground.html`), the VS Code editor surface (`prismpath/editor/`).
+- The Vector integration and the older Facet adapter (`integrations/vector/`, `adapters/telemetry/`),
+  the fusion adapter (`adapters/fusion/`), the Zarf and UDS integrations.
+- The comparison harness and the routing benchmark (`prismpath/comparisons/`, `prismpath/benchmark/`),
+  the bypass measurement modules and their corpora (`prismpath/safety/bypass_*`, `measure_p1`,
+  `gen_p1_lockfile`, `benign_corpus`; the generated `policies/p1_lockfile.json` stays), the four
+  `prismpath/evals/eval_*` modules, `prismpath/measurements/`, `prismpath/deploy/`, the research
+  lint tools under `tools/`, `ROADMAP.md`, `docs/decoder-ring.md`, `docs/objections.md`, the
+  Gemma code nodes example and the JS and Go worker examples.
+- Twenty four tests whose subjects are not carried: test_benchmark, test_comparison,
+  test_comparisons_groupb, test_comparisons_matrix, test_comparisons_opa_runner,
+  test_comparisons_prereg, test_comparisons_translators, test_comparisons_verdict,
+  test_comparisons_toolchain, test_glue_opa_receipts, test_glue_opa_revision_floor,
+  test_gate_zero_kappa, test_benign_corpus, test_bypass_corpus, test_bypass_report,
+  test_gen_p1_lockfile, test_compile, test_portable_conformance, test_portable_runners,
+  test_docs_health, test_evidence_check_manifest, test_mdflow_interop, test_net_swap, and the
+  telemetry bench codecs test.
+
+## Research changes since 0.1.0, adopted at 40a9b05
 
 ### Deprecated
 - **`agent` as the name for whatever does a node's work; the word is `worker`.** `run(agent=...)`
@@ -458,7 +506,7 @@ spec stable.
 - **mdflow interop** (`prismpath/examples/mdflow_interop/`): mdflow tasks run as PrismPath workers
   behind the routing kernel ("PrismPath governs the routing; mdflow provides the action"), via mdflow's
   `--json` envelope; gated example + tests.
-- **The Level M hardware target ([`prismpath-hw/`](prismpath-hw/README.md))**;
+- **The Level M hardware target ([`prismpath-hw/`](https://github.com/crystal-warden/prism-path/blob/40a9b05b3523cb4943b583b77c6fb86f93d795ee/prismpath-hw/README.md))**;
   a Level M flow compiles to a binary table image (`wazuh_triage`, unmodified: 302 bytes)
   interpreted by one fixed FPGA circuit on a Zynq-7020; C and RTL interpreters certified on a
   **declared subset** of the frozen corpus (114/1,067 predicate + 6/27 engine vectors, zero

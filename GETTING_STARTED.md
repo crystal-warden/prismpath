@@ -16,23 +16,22 @@ The one dependency the minimal path installs is numpy.
 
 ---
 
-## Path 1 · see it route (3 steps, nothing installed)
-
-The portable kernel runs in your browser; nothing leaves the page.
-
-1. `git clone https://github.com/crystal-warden/prism-path.git && cd prism-path`
-2. `cd prismpath/portable && python3 -m http.server 8321`
-3. Open `http://localhost:8321/playground.html`; pick a preset, press **▶ Run**, watch the
-   path light up. Edit an edge; the tier badges and checks update as you type.
-
-*(Once the hosted playground is live, this path is 1 step: open the link.)* Any flow is
-**shareable as a link**: 🔗 Share puts the whole flow in the URL fragment (nothing leaves
-the page), so a tweet, HN comment, or bug report can carry an executable flow.
-
-## Path 2 · use the toolchain (4 steps)
+## Path 1 · see it route (3 steps, one pip install)
 
 ```bash
-git clone https://github.com/crystal-warden/prism-path.git && cd prism-path   # 1
+pip install prismpath                       # 1  (numpy only)
+prismpath init --template pr_review         # 2  a gallery flow and its routing tests
+prismpath test pr_review.md                 # 3  routes as written, no model, milliseconds
+```
+
+The browser playground that runs the decidable subset client side is hosted at
+[crystalwardenlabs.com/playground](https://www.crystalwardenlabs.com/playground); the JavaScript kernel
+behind it lives in the research repository and is not part of this package.
+
+## Path 2 · use the toolchain from a checkout (4 steps)
+
+```bash
+git clone https://github.com/crystal-warden/prismpath.git && cd prismpath   # 1
 pip install -e .                            # 2  (numpy only)
 prismpath validate prismpath/examples/pr_demo/triage.md  # 3  → "clean ✅ · the flow compiles"
 prismpath test prismpath/examples/pr_demo/triage.md      # 4  → "6/6 passed"  (no model, milliseconds)
@@ -147,10 +146,10 @@ is demonstrated end to end in
   accuracy-per-call; see `prismpath/benchmark/`).
 - **Durability**: `checkpoint.run_durable(...)` makes any run crash-resumable and lets it
   suspend for a human with the evidence packet; `@spawn` fans out child runs.
-- **The edge**: `prismpath portable <flow>` tells you if your flow is P0: zero-ML, runnable by
-  the same kernel the playground uses, anywhere JavaScript runs. (The Level M core goes further
-  still; it now runs as table images in FPGA fabric, declared-subset certified: see
-  [ROADMAP Phase 6](ROADMAP.md).)
+- **The edge**: `prismpath portable <flow>` tells you if your flow is P0: zero-ML, runnable by any
+  conformant kernel, the Rust crate in this repository included. The Level M core goes further still:
+  `python -m prismpath.kernel.ppt_compile <flow> -o image.ppt` produces the table image that research
+  runs in FPGA fabric and in the Linux kernel ([the adopted revision](https://github.com/crystal-warden/prism-path/blob/40a9b05b3523cb4943b583b77c6fb86f93d795ee/docs/SYSTEM_MAP.md)).
 - **Your role's door**: the [persona examples](prismpath/examples/README.md): SOC triage, support
   routing, release trains, HR onboarding, fan-out review, and the sprint loop that builds this
   repo.

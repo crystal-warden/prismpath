@@ -31,7 +31,7 @@ runs lands here.
   it); selective MMR retransmit is multiples cheaper under sparse burst loss. **Margins hold → Phase A
   validates.**
 - ✅ **On a real wire (cross-adapter check)**: the self framing property this codec rests on is
-  measured on a real transport by [`adapters/fusion/bench/wire.py`](../fusion/bench/wire.py), which
+  measured on a real transport by [`adapters/fusion/bench/wire.py`](https://github.com/crystal-warden/prism-path/blob/40a9b05b3523cb4943b583b77c6fb86f93d795ee/adapters/fusion/bench/wire.py), which
   charges per packet IP/TCP/TLS framing over the full SIEM backlog and recorded IMU sessions. The
   payoff is exactly the self framing one: unbatched, a per decision packet is header bound (110
   B/decision), but because the codec carries no per record framing the header amortizes to ~0 when a
