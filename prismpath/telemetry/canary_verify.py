@@ -11,9 +11,13 @@ the decoded leg actually carried. It checks three things: the two captures carry
 events, every position routes identically, and the per route distributions agree. Any daylight
 between the legs is listed with the offending events.
 
-Usage:
-  canary_verify.py FLOW.md --raw raw.ndjson --decoded decoded.ndjson --route-node NODE
-                   [--route-field facet_route] [--map FIELD=PATH ...] [--json OUT.json]
+Run it as a module from the installed package:
+
+  python -m prismpath.telemetry.canary_verify FLOW.md --raw raw.ndjson --decoded decoded.ndjson \
+      --route-node NODE [--route-field facet_route] [--map FIELD=PATH ...] [--json OUT.json]
+
+The two captures can come from any pipeline that fans one source out to a raw sink and a Facet
+sink; nothing here depends on a particular collector.
 
 Exit status: 0 = perfect parity, 1 = any mismatch, count drift, or unreadable input.
 """
@@ -26,17 +30,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# Imported as a module (python -m integrations.vector.canary_verify) the repository root is already
-# on sys.path. Run as a plain script against an uninstalled checkout it is not, and that is how the
-# verifier is invoked in the field, so the root goes on the path for that case.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from prismpath.kernel.parser import parse_file  # noqa: E402
-from prismpath.telemetry import preflight  # noqa: E402  (extract_reading + the codec's exact view of an event)
-from prismpath.telemetry import quantizer  # noqa: E402
-from prismpath.telemetry import wire  # noqa: E402
+from prismpath.kernel.parser import parse_file
+from prismpath.telemetry import preflight  # extract_reading, the codec's exact view of an event
+from prismpath.telemetry import quantizer
+from prismpath.telemetry import wire
 
 
 def _read_ndjson(path: str) -> Tuple[List[dict], int]:
