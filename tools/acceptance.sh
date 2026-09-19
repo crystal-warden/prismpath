@@ -99,7 +99,22 @@ PY
     run_gate "package boundary (wheel and sdist)" "$OUT/boundary-package.log" bash -c "cd '$EXPORT' && '$PYTHON' -m tools.check_boundary --wheel '$WHEEL' --sdist '$SDIST'"
     # -------------------------------------------------------------- base install: numpy only, no research, no rust, no node
     run_gate "python base: fresh venv install of the wheel" "$OUT/base-install.log" bash -c "'$PYTHON' -m venv '$OUT/venv-base' && '$OUT/venv-base/bin/pip' -q install '$WHEEL'"
-    run_gate "python base: CLI, import and runtime asset smoke" "$OUT/base-smoke.log" bash -c "cd '$OUT' && export PRISMPATH_ACCEPTANCE_INSTALLED=1 && '$OUT/venv-base/bin/prismpath' --help > /dev/null && '$OUT/venv-base/bin/python' -c 'import prismpath, sys; print(prismpath.__file__); assert \"site-packages\" in prismpath.__file__' && rm -rf '$OUT/smoke' && mkdir '$OUT/smoke' && cd '$OUT/smoke' && '$OUT/venv-base/bin/prismpath' init --template pr_review && '$OUT/venv-base/bin/prismpath' validate pr_review.md && '$OUT/venv-base/bin/prismpath' test pr_review.md && '$OUT/venv-base/bin/prismpath' portable pr_review.md && '$OUT/venv-base/bin/python' -m prismpath.kernel.ppt_compile pr_review.md -o pr_review.ppt --json pr_review.names.json ; test -s pr_review.ppt || '$OUT/venv-base/bin/python' -m prismpath.kernel.ppt_compile '$OUT/venv-base/lib/'python*/site-packages/prismpath/gallery/incident_severity/incident_severity.md -o incident.ppt && '$OUT/venv-base/bin/prismpath' facet quantize '$OUT/venv-base/lib/'python*/site-packages/prismpath/flows/wazuh_triage.md '{\"level\": 7}' ; '$OUT/venv-base/bin/prismpath' compile pr_review.md --tier p0; test \$? -eq 2"
+    run_gate "python base: CLI, import and runtime asset smoke" "$OUT/base-smoke.log" bash -c "
+      set -e; cd '$OUT'; export PRISMPATH_ACCEPTANCE_INSTALLED=1
+      V='$OUT/venv-base/bin'
+      \$V/prismpath --help > /dev/null
+      \$V/python -c 'import prismpath; print(prismpath.__file__); assert \"site-packages\" in prismpath.__file__'
+      rm -rf smoke && mkdir smoke && cd smoke
+      \$V/prismpath init --template incident_severity > /dev/null
+      \$V/prismpath validate incident_severity.md
+      \$V/prismpath test incident_severity.md
+      \$V/prismpath portable incident_severity.md
+      \$V/python -m prismpath.kernel.ppt_compile incident_severity.md -o incident_severity.ppt --json incident_severity.names.json
+      test -s incident_severity.ppt
+      \$V/prismpath facet quantize incident_severity.md '{\"severity\": 3}' > /dev/null || \$V/prismpath facet --help > /dev/null
+      if \$V/prismpath compile incident_severity.md --tier p0 2> compile.err; then echo 'compile must fail'; exit 1; fi
+      grep -q 'not available in this distribution' compile.err
+      echo 'base smoke ok'"
     run_gate "python base: installed package test (base extras only)" "$OUT/base-tests.log" bash -c "cd '$OUT' && '$OUT/venv-base/bin/pip' -q install pytest && PRISMPATH_ACCEPTANCE_INSTALLED=1 '$OUT/venv-base/bin/python' -m pytest --pyargs prismpath.tests.test_installed_package prismpath.tests.test_cli_without_js_engine prismpath.tests.test_compatibility_hashes prismpath.tests.test_compiler_parity -q -p no:cacheprovider"
     # -------------------------------------------------------------- full install: extras, the shipped suites against the installed package
     run_gate "python full: install with signing, control-plane, test extras" "$OUT/full-install.log" bash -c "'$PYTHON' -m venv '$OUT/venv-full' && '$OUT/venv-full/bin/pip' -q install '$WHEEL[signing,control-plane,test]' httpx"
@@ -117,14 +132,27 @@ sys.exit(1 if unbudgeted else 0)
 PY
     run_gate "python full: fuzz the predicate sandbox" "$OUT/fuzz.log" bash -c "cd '$OUT' && '$OUT/venv-full/bin/python' -m prismpath.safety.fuzz_predicates -n 20000"
     run_gate "canary verifier from the installed module" "$OUT/canary.log" bash -c "cd '$OUT' && '$OUT/venv-full/bin/python' -m pytest --pyargs prismpath.telemetry.tests.test_canary_verify -q -p no:cacheprovider"
+    # -------------------------------------------------------------- the signed pack, inside the project Mission Control will follow
+    run_gate "signed pack from the installed wheel: keygen, envelope, compile, pack, verify" "$OUT/pack.log" bash -c "
+      set -e; rm -rf '$OUT/mc-project' && mkdir -p '$OUT/mc-project/flows' && cd '$OUT/mc-project'
+      P='$OUT/venv-full/bin/prismpath'; PY='$OUT/venv-full/bin/python'
+      printf -- '---\nname: triage\nstart: intake\n---\n## intake\n-> escalate: when priority > 5\n-> resolve: else\n## escalate\n## resolve\n' > flows/triage.md
+      \$P swap keygen --out keys --name authority > /dev/null
+      \$P swap envelope --envelope-id env1 --fields priority:int --caps atoms=1024,nodes=256 --priv keys/authority.key --pub keys/authority.pub --out env > /dev/null
+      \$PY -m prismpath.kernel.ppt_compile flows/triage.md -o triage.ppt
+      \$P swap pack --ppt triage.ppt --fields priority:int --priv keys/authority.key --pub keys/authority.pub --version 1 > /dev/null
+      \$P swap verify --ppt triage.ppt --pub keys/authority.pub | grep -q '\"ok\": true'
+      echo 'pack verified'"
     # -------------------------------------------------------------- Mission Control from the installed wheel
     run_gate "mission control: installed launch, defaults, assets, validate, facet, pack verify, sprint subprocess" "$OUT/mission-control.log" "$OUT/venv-full/bin/python" - "$OUT" <<'PY'
 import json, os, subprocess, sys, time, urllib.request, tempfile
 from pathlib import Path
-out = Path(sys.argv[1]); project = out / "mc-project"; (project / "flows").mkdir(parents=True, exist_ok=True)
+out = Path(sys.argv[1]); project = out / "mc-project"
 flow = project / "flows" / "triage.md"
-flow.write_text("---\nname: triage\nstart: intake\n---\n## intake\n-> escalate: when priority > 5\n-> resolve: else\n## escalate\n## resolve\n")
-env = dict(os.environ, MC_PROJ=str(project), MC_PORT="9917", MC_SCAN=str(project / "status.json"))
+assert flow.exists(), "the pack gate prepares the project"
+# LLM_BASE points at a closed loopback port so a sprint that tries to reach a model fails fast and
+# touches no live service; the launch is what is under test, not the model.
+env = dict(os.environ, MC_PROJ=str(project), MC_PORT="9917", MC_SCAN=str(project / "status.json"), LLM_BASE="http://127.0.0.1:9/v1", LLM_MODEL="none")
 env.pop("MC_AUDIT", None)
 state_home = Path(os.environ["XDG_STATE_HOME"]); env["XDG_STATE_HOME"] = str(state_home)
 server = subprocess.Popen([sys.executable, "-m", "prismpath.mission_control"], env=env, cwd=str(out), stdout=open(out / "mc-server.log", "w"), stderr=subprocess.STDOUT)
@@ -143,17 +171,21 @@ try:
     for asset in ("/", "/style.css", "/app.js", "/vendor/cytoscape.min.js"):
         status, body = get(asset); assert status == 200 and body, asset
     print("static assets served")
-    status, validation = post("/api/v1/validate", {"flow_md": str(flow)}); print("validate:", status, str(validation)[:120])
-    status, facet = post("/api/v1/facet-encode", {"flow_md": str(flow), "reading": {"priority": 7}}); print("facet-encode:", status, str(facet)[:120])
+    status, validation = post("/api/v1/validate", {"flow_md": "flows/triage.md"}); print("validate:", status, str(validation)[:120])
+    status, facet = post("/api/v1/facet-encode", {"flow_md": "flows/triage.md", "reading_json": {"priority": 7}}); print("facet-encode:", status, str(facet)[:160])
+    status, verified = post("/api/v1/pack-verify", {"ppt_path": "triage.ppt", "pub": ["keys/authority.pub"]}); print("pack-verify:", status, verified.get("ok"), verified.get("reasons"))
+    assert verified.get("ok") is True, verified
     audit_default = state_home / "prismpath" / "mission_audit.log"
     assert audit_default.exists(), f"audit log not at the state directory default: {audit_default}"
     assert not any(Path(p).name == "mission_audit.log" for p in Path(sys.prefix).rglob("mission_audit.log")), "audit log written into the installation"
     print("audit log at", audit_default)
-    status, started = post("/api/v1/sprint/start", {"proj": str(project), "gate": "browser", "seconds": 1, "max_iters": 1}); print("sprint start:", status, started)
-    time.sleep(3)
+    status, started = post("/api/v1/sprint/start", {"proj": str(project), "agent": "served", "seconds": 1, "max_iters": 1}); print("sprint start:", status, started)
+    time.sleep(4)
     log = (project / "mc_sprint.log").read_text() if (project / "mc_sprint.log").exists() else ""
     assert "No module named" not in log and "can't open file" not in log, log[-500:]
-    print("sprint subprocess launched from the installed module; log head:", log[:200].replace("\n", " | "))
+    assert "8888" not in log, "the sprint reached for the default model endpoint"
+    print("sprint subprocess launched from the installed module in the project; log head:", log[:300].replace("\n", " | "))
+    post("/api/v1/sprint/stop", {}) if False else None
 finally:
     server.terminate(); server.wait(timeout=10)
 # the override, in a second process
@@ -169,11 +201,13 @@ try:
 finally:
     server.terminate(); server.wait(timeout=10)
 PY
-    run_gate "pack verify from the installed wheel" "$OUT/pack.log" bash -c "cd '$OUT/smoke' && P='$OUT/venv-full/bin/prismpath' && \$P swap keygen --out keys --name authority && \$P swap envelope --envelope-id env1 --fields priority:int --caps atoms=1024,nodes=256 --priv keys/authority.priv --pub keys/authority.pub --out env && '$OUT/venv-full/bin/python' -m prismpath.kernel.ppt_compile '$OUT/mc-project/flows/triage.md' -o triage.ppt && \$P swap pack --ppt triage.ppt --fields priority:int --priv keys/authority.priv --version 1 --out pack && \$P swap verify --ppt pack/*.ppt --pub keys/authority.pub --out pack"
     # -------------------------------------------------------------- source archive
     run_gate "source archive: unpack, rebuild, install, promised tests present" "$OUT/sdist.log" bash -c "rm -rf '$OUT/sdist-work' && mkdir '$OUT/sdist-work' && tar -xzf '$SDIST' -C '$OUT/sdist-work' && cd '$OUT'/sdist-work/prismpath-* && test -f prismpath/tests/test_causes.py && test -f prismpath/tests/fixtures/compiler/SHA256SUMS && test -f COMPATIBILITY.md && '$OUT/venv-build/bin/python' -m build --outdir '$OUT/dist-from-sdist' . && '$PYTHON' -m venv '$OUT/venv-sdist' && '$OUT/venv-sdist/bin/pip' -q install '$OUT'/dist-from-sdist/*.whl pytest && cd '$OUT' && '$OUT/venv-sdist/bin/python' -m pytest --pyargs prismpath.tests.test_compatibility_hashes prismpath.tests.test_installed_package -q -p no:cacheprovider"
     # -------------------------------------------------------------- examples and quickstart
     run_gate "documentation: examples and quickstart commands" "$OUT/examples.log" bash -c "cd '$EXPORT' && P='$OUT/venv-full/bin/prismpath' && \$P validate prismpath/examples/pr_demo/triage.md && \$P test prismpath/examples/pr_demo/triage.md && \$P validate prismpath/examples/operator_overlay/overlay.md && \$P test prismpath/examples/operator_overlay/overlay.md && \$P validate prismpath/examples/governed_worker/governed_worker.md && \$P validate prismpath/examples/code_nodes/pipeline.md && \$P validate prismpath/examples/cli_worker/ci_gate.md && \$P graph prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P contract prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P capability prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P verify prismpath/gallery/incident_severity/incident_severity.md > /dev/null && bash prismpath/examples/pr_demo/demo.sh > /dev/null"
+  else
+    record "wheel built" FAIL "no wheel in $OUT/dist"
+  fi
 fi
 
 if [ "$LEG" = "full" ] || [ "$LEG" = "rust" ]; then
