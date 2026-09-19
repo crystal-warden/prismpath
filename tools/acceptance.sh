@@ -175,17 +175,18 @@ try:
     status, facet = post("/api/v1/policy/facet-encode", {"flow_md": "flows/triage.md", "reading_json": {"priority": 7}}); print("facet-encode:", status, str(facet)[:160])
     status, verified = post("/api/v1/policy/pack-verify", {"ppt_path": "triage.ppt", "pub": ["keys/authority.pub"]}); print("pack-verify:", status, verified.get("ok"), verified.get("reasons"))
     assert verified.get("ok") is True, verified
-    audit_default = state_home / "prismpath" / "mission_audit.log"
-    assert audit_default.exists(), f"audit log not at the state directory default: {audit_default}"
-    assert not any(Path(p).name == "mission_audit.log" for p in Path(sys.prefix).rglob("mission_audit.log")), "audit log written into the installation"
-    print("audit log at", audit_default)
     status, started = post("/api/v1/sprint/start", {"proj": str(project), "agent": "served", "seconds": 1, "max_iters": 1}); print("sprint start:", status, started)
     time.sleep(4)
     log = (project / "mc_sprint.log").read_text() if (project / "mc_sprint.log").exists() else ""
     assert "No module named" not in log and "can't open file" not in log, log[-500:]
     assert "8888" not in log, "the sprint reached for the default model endpoint"
     print("sprint subprocess launched from the installed module in the project; log head:", log[:300].replace("\n", " | "))
-    post("/api/v1/sprint/stop", {}) if False else None
+    # The audit log is created by the first audited action, and the sprint start is one; only now
+    # can its location be asserted.
+    audit_default = state_home / "prismpath" / "mission_audit.log"
+    assert audit_default.exists(), f"audit log not at the state directory default: {audit_default}"
+    assert not list(Path(sys.prefix).rglob("mission_audit.log")), "audit log written into the installation"
+    print("audit log at", audit_default)
 finally:
     server.terminate(); server.wait(timeout=10)
 # the override, in a second process
@@ -196,6 +197,10 @@ try:
         try:
             with urllib.request.urlopen("http://127.0.0.1:9918/api/v1/status", timeout=5): break
         except Exception: time.sleep(0.2)
+    request = urllib.request.Request("http://127.0.0.1:9918/api/v1/sprint/start", data=json.dumps({"proj": str(project), "agent": "served", "seconds": 1, "max_iters": 1}).encode(), headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(request, timeout=20) as response:
+        assert response.status == 200
+    time.sleep(2)
     assert (out / "override-audit.log").exists(), "MC_AUDIT override not honoured"
     print("MC_AUDIT override honoured")
 finally:
