@@ -55,11 +55,7 @@ def test_classifier_compiler_gap_pinned():
     table. Any gap here means the two authorities fell out of sync (e.g. a divergent desugar copy crept
     back) — investigate, don't just re-pin. Skips if the hardware compiler isn't on the path (it lives
     outside the package)."""
-    import sys as _sys
-    from prismpath.tests._repo import repo_file
-    _hw = repo_file("prismpath-hw")
-    _sys.path.insert(0, str(_hw))
-    import ppt_compile as pc
+        from prismpath.kernel import ppt_compile as pc
 
     classifier = {case["cond"] for case in _cases() if mc.is_level_m(case["cond"])[0]}
     compiler = set()
