@@ -52,7 +52,6 @@ def test_fold_only_touches_signed_int_constants():
 
 
 def test_compiles_to_a_table():
-    import sys
     from prismpath.kernel import ppt_compile as pc
     img = pc.compile_predicate("when x >= -1282")        # no SubsetError
     assert img.serialize()[:4] == b"PPTM"
