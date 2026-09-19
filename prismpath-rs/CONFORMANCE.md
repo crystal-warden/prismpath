@@ -3,7 +3,7 @@
 **Date:** 2026-07-29 · re verified 2026-08-12 on corpus v2 · **Verdict: CONFORMANT**: 1079/1079 predicates, 27/27 flows · Reproduce with:
 
 ```
-cargo run --bin conformance -- ../prismpath/portable/conformance
+cargo run --bin conformance -- tests/fixtures
 ```
 
 The spec now has its **second independent implementation**: two kernels (this crate and

@@ -7,11 +7,11 @@ places Python cannot run.
 reference in `prismpath/`. Where Python and JS semantics are subtle this crate copies the `.mjs`
 decision, because the corpus is the judge.
 
-**What enforces agreement.** The frozen conformance corpus in `prismpath/portable/conformance/` is
+**What enforces agreement.** The frozen conformance corpus, carried in this crate under `tests/fixtures/` as a byte identical copy of the product corpus in `prismpath/portable/conformance/`, is
 the specification. The crate's only claim to correctness is passing it bit for bit:
 
 ```
-cargo run --bin conformance -- ../prismpath/portable/conformance
+cargo run --bin conformance -- tests/fixtures
 ```
 
 `CONFORMANCE.md` records the certified result (1079/1079 predicates, 27/27 flows) and the exact

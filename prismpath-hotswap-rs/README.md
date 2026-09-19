@@ -10,7 +10,7 @@ nothing in this crate touches the compiler or the image bytes, so the certified 
 what the FPGA and eBPF evidence rows cite.
 
 **What enforces agreement.** A cross language contract gated by `tests/test_hotswap_conformance.rs`
-against `prismpath/portable/conformance/hotswap.json`: signatures are Ed25519 over Python's exact
+against `tests/fixtures/hotswap.json`, a byte identical copy of `prismpath/portable/conformance/hotswap.json`: signatures are Ed25519 over Python's exact
 canonical JSON bytes, so a pack signed by either runtime verifies on the other, and every refusal
 uses the same stable reason strings the Python tests pin (`sig:missing`, `image:sha256-mismatch`,
 `version:not-monotonic`, and the rest). Run `cargo test` in this directory. This crate is a workspace
