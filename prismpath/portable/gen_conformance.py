@@ -211,9 +211,9 @@ def _expect(cond: str, ctx: dict):
 
 # ---------------------------------------------------------------------- engine fixtures
 def _flow_fixtures():
-    """The engine-level fixtures — imported from the conformance test so there is ONE fixture
-    source; their expected results are computed here from the Python engine."""
-    from prismpath.tests.test_portable_conformance import FIXTURES, scripted_agent
+    """The engine-level fixtures, one source in portable/flow_fixtures.py; their expected results
+    are computed here from the Python engine."""
+    from prismpath.portable.flow_fixtures import FIXTURES, scripted_agent
     out = []
     for fx in FIXTURES:
         graph = parse(fx["flow"])
