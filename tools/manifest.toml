@@ -1,0 +1,924 @@
+# The product manifest: what may be in this repository. tools/product_manifest.py explains the
+# semantics; tools/manifest.lock enumerates every classified path. Exact paths win over prefixes and
+# longer prefixes win over shorter ones. A hold rule names a research area that must never enter.
+
+[meta]
+research_repository = "https://github.com/crystal-warden/prism-path"
+adopted_revision = "40a9b05b3523cb4943b583b77c6fb86f93d795ee"
+product_baseline = "9129c271ff02e423706e20af266b54c2aa91b447"
+
+# ------------------------------------------------------------------ ship: the Python engine
+[[rule]]
+id = "python-engine"
+kind = "ship"
+purpose = "engine"
+owner = "research"
+prefix = "prismpath/"
+source_prefix = "prismpath/"
+reason = "the Python engine, the CLI and their runtime data; narrower rules below carve out what is not carried"
+
+[[rule]]
+id = "compiler"
+kind = "ship"
+purpose = "engine"
+owner = "research"
+path = "prismpath/kernel/ppt_compile.py"
+source_prefix = "prismpath-hw/ppt_compile.py"
+reason = "the table compiler, relocated from the hardware tree; flags and output bytes unchanged"
+
+[[rule]]
+id = "canary-verifier"
+kind = "ship"
+purpose = "facet"
+owner = "research"
+path = "prismpath/telemetry/canary_verify.py"
+source_prefix = "integrations/vector/canary_verify.py"
+reason = "the Facet cutover verifier, relocated from the Vector integration; no Vector dependency"
+
+[[rule]]
+id = "flow-fixtures"
+kind = "ship"
+purpose = "fixtures"
+owner = "research"
+path = "prismpath/portable/flow_fixtures.py"
+source_prefix = "prismpath/tests/test_portable_conformance.py"
+reason = "the engine level conformance fixtures, extracted from the JavaScript port's test"
+
+[[rule]]
+id = "compiler-references"
+kind = "ship"
+purpose = "fixtures"
+owner = "product"
+prefix = "prismpath/tests/fixtures/compiler/"
+reason = "thirteen frozen regression pairs generated from the adopted research compiler and one historical image"
+
+[[rule]]
+id = "authored-fixtures"
+kind = "ship"
+purpose = "fixtures"
+owner = "product"
+prefix = "prismpath/tests/fixtures/"
+reason = "fixtures the carried tests read; the broken flow corpus and the copies from research keep their source in the lock"
+
+[[rule]]
+id = "product-tests"
+kind = "ship"
+purpose = "tests"
+owner = "product"
+prefix = "prismpath/tests/test_"
+reason = "the product runtime suite; research tests are adopted copies (source in the lock), product tests have none"
+
+# ------------------------------------------------------------------ ship: the Rust crates
+[[rule]]
+id = "crate-kernel"
+kind = "ship"
+purpose = "engine"
+owner = "research"
+prefix = "prismpath-rs/"
+source_prefix = "prismpath-rs/"
+reason = "the Rust kernel crate"
+
+[[rule]]
+id = "crate-telemetry"
+kind = "ship"
+purpose = "facet"
+owner = "research"
+prefix = "prismpath-telemetry-rs/"
+source_prefix = "prismpath-telemetry-rs/"
+reason = "the Facet wire in Rust"
+
+[[rule]]
+id = "crate-hotswap"
+kind = "ship"
+purpose = "engine"
+owner = "research"
+prefix = "prismpath-hotswap-rs/"
+source_prefix = "prismpath-hotswap-rs/"
+reason = "the signed pack in Rust"
+
+[[rule]]
+id = "crate-preflight"
+kind = "ship"
+purpose = "facet"
+owner = "research"
+prefix = "prismpath-preflight/"
+source_prefix = "prismpath-preflight/"
+reason = "the Facet preflight tool"
+
+[[rule]]
+id = "crate-fixtures"
+kind = "ship"
+purpose = "fixtures"
+owner = "product"
+prefix = "prismpath-rs/tests/fixtures/"
+reason = "byte identical copies of the product corpora the kernel crate reads; tools/fixture_sync.py checks them"
+
+[[rule]]
+id = "crate-fixtures-telemetry"
+kind = "ship"
+purpose = "fixtures"
+owner = "product"
+prefix = "prismpath-telemetry-rs/tests/fixtures/"
+reason = "byte identical copies of the wire corpora plus the crate's own wire parity fixture"
+
+[[rule]]
+id = "crate-fixtures-hotswap"
+kind = "ship"
+purpose = "fixtures"
+owner = "product"
+prefix = "prismpath-hotswap-rs/tests/fixtures/"
+reason = "byte identical copy of the hot swap corpus"
+
+[[rule]]
+id = "cargo-workspace"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+prefix = "Cargo."
+source_prefix = "Cargo."
+reason = "the workspace manifest and lock"
+
+# ------------------------------------------------------------------ ship: documents, packaging, tools
+[[rule]]
+id = "docs"
+kind = "ship"
+purpose = "docs"
+owner = "research"
+prefix = "docs/"
+source_prefix = "docs/"
+reason = "guides and design specifications; DICTIONARY.md is the generated product subset"
+
+[[rule]]
+id = "root-docs"
+kind = "ship"
+purpose = "docs"
+owner = "research"
+prefix = "README.md"
+reason = "the product README, from the research product template and product owned since"
+
+[[rule]]
+id = "spec"
+kind = "ship"
+purpose = "docs"
+owner = "research"
+path = "SPEC.md"
+source_prefix = "SPEC.md"
+reason = "the flow format specification, adopted unedited"
+
+[[rule]]
+id = "protocol"
+kind = "ship"
+purpose = "docs"
+owner = "research"
+path = "PROTOCOL.md"
+source_prefix = "PROTOCOL.md"
+reason = "the Facet wire specification, adopted unedited"
+
+[[rule]]
+id = "root-text"
+kind = "ship"
+purpose = "docs"
+owner = "research"
+prefix = "GETTING_STARTED.md"
+source_prefix = "GETTING_STARTED.md"
+reason = "the getting started guide"
+
+[[rule]]
+id = "changelog"
+kind = "ship"
+purpose = "docs"
+owner = "research"
+path = "CHANGELOG.md"
+source_prefix = "CHANGELOG.md"
+reason = "the changelog: the product section above the imported research history"
+
+[[rule]]
+id = "product-records"
+kind = "ship"
+purpose = "docs"
+owner = "product"
+prefix = "COMPATIBILITY.md"
+reason = "the adopted revision and what the product promises about it"
+
+[[rule]]
+id = "divergences"
+kind = "ship"
+purpose = "docs"
+owner = "product"
+path = "DIVERGENCES.md"
+reason = "every intentional difference from research"
+
+[[rule]]
+id = "provenance"
+kind = "ship"
+purpose = "packaging"
+owner = "product"
+path = "PROVENANCE.md"
+reason = "adopted revisions, reference hashes, relocations and the tree digest"
+
+[[rule]]
+id = "checksums"
+kind = "ship"
+purpose = "packaging"
+owner = "product"
+path = "SHA256SUMS"
+reason = "sha256 and mode of every product file except itself and PROVENANCE.md"
+
+[[rule]]
+id = "legal-and-community"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+prefix = "LICENSE"
+source_prefix = "LICENSE"
+reason = "the license"
+
+[[rule]]
+id = "notice"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+path = "NOTICE"
+source_prefix = "NOTICE"
+reason = "attribution notices"
+
+[[rule]]
+id = "contributing"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+path = "CONTRIBUTING.md"
+source_prefix = "CONTRIBUTING.md"
+reason = "how to contribute, rewritten for the product"
+
+[[rule]]
+id = "code-of-conduct"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+path = "CODE_OF_CONDUCT.md"
+source_prefix = "CODE_OF_CONDUCT.md"
+reason = "the code of conduct"
+
+[[rule]]
+id = "citation"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+path = "CITATION.cff"
+source_prefix = "CITATION.cff"
+reason = "how to cite the work"
+
+[[rule]]
+id = "security"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+path = "SECURITY.md"
+source_prefix = "SECURITY.md"
+reason = "the security policy"
+
+[[rule]]
+id = "python-packaging"
+kind = "ship"
+purpose = "packaging"
+owner = "product"
+prefix = "pyproject.toml"
+reason = "the product's own package metadata"
+
+[[rule]]
+id = "manifest-in"
+kind = "ship"
+purpose = "packaging"
+owner = "product"
+path = "MANIFEST.in"
+reason = "source distribution contents"
+
+[[rule]]
+id = "github-action"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+prefix = "action.yml"
+source_prefix = "action.yml"
+reason = "the composite action adopters run on their flows"
+
+[[rule]]
+id = "hooks"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+path = ".pre-commit-hooks.yaml"
+source_prefix = ".pre-commit-hooks.yaml"
+reason = "the pre commit hooks adopters install"
+
+[[rule]]
+id = "gitignore"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+path = ".gitignore"
+source_prefix = ".gitignore"
+reason = "ignore rules"
+
+[[rule]]
+id = "github-templates"
+kind = "ship"
+purpose = "packaging"
+owner = "research"
+prefix = ".github/"
+source_prefix = ".github/"
+reason = "issue and pull request templates; the workflow is product owned"
+
+[[rule]]
+id = "product-ci"
+kind = "ship"
+purpose = "tools"
+owner = "product"
+prefix = ".github/workflows/"
+reason = "the product CI"
+
+[[rule]]
+id = "tools"
+kind = "ship"
+purpose = "tools"
+owner = "product"
+prefix = "tools/"
+reason = "the maintenance system: manifest, lock, provenance, checks, fixture sync, upstream comparison, promotion, acceptance, and their tests"
+
+# ------------------------------------------------------------------ hold: never enters the product
+[[rule]]
+id = "hold-test-benchmark"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_benchmark.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-comparison"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_comparison.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-comparisons-groupb"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_comparisons_groupb.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-comparisons-matrix"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_comparisons_matrix.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-comparisons-opa-runner"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_comparisons_opa_runner.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-comparisons-prereg"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_comparisons_prereg.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-comparisons-translators"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_comparisons_translators.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-comparisons-verdict"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_comparisons_verdict.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-comparisons-toolchain"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_comparisons_toolchain.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-glue-opa-receipts"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_glue_opa_receipts.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-glue-opa-revision-floor"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_glue_opa_revision_floor.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-gate-zero-kappa"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_gate_zero_kappa.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-benign-corpus"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_benign_corpus.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-bypass-corpus"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_bypass_corpus.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-bypass-report"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_bypass_report.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-gen-p1-lockfile"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_gen_p1_lockfile.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-compile"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_compile.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-portable-conformance"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_portable_conformance.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-portable-runners"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_portable_runners.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-docs-health"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_docs_health.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-evidence-check-manifest"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_evidence_check_manifest.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-mdflow-interop"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_mdflow_interop.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-net-swap"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/tests/test_net_swap.py"
+reason = "tests something not carried"
+
+[[rule]]
+id = "hold-test-bench-codecs"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/telemetry/tests/test_bench_codecs.py"
+reason = "tests the telemetry bench, which is not carried"
+
+[[rule]]
+id = "hold-comparisons"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/comparisons/"
+reason = "the comparison harness and its results are research"
+
+[[rule]]
+id = "hold-benchmark"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/benchmark/"
+reason = "the routing benchmark is research"
+
+[[rule]]
+id = "hold-measurements"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/measurements/"
+reason = "measurement results are research"
+
+[[rule]]
+id = "hold-evidence"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/evidence/"
+reason = "OpenTimestamps anchors over research documents"
+
+[[rule]]
+id = "hold-portable-js"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/portable/prismpath"
+reason = "the standalone JavaScript kernel and its test"
+
+[[rule]]
+id = "hold-portable-runners"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/portable/run_"
+reason = "the JavaScript runners"
+
+[[rule]]
+id = "hold-portable-bundle"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/portable/bundle_engine.mjs"
+reason = "the bundle engine for the withdrawn compile command"
+
+[[rule]]
+id = "hold-portable-policy"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/portable/crypto_migration_policy.mjs"
+reason = "a JavaScript policy module"
+
+[[rule]]
+id = "hold-playground"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/portable/playground.html"
+reason = "the browser playground; hosted on the website"
+
+[[rule]]
+id = "hold-portable-readme"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/portable/README.md"
+reason = "describes the JavaScript kernel"
+
+[[rule]]
+id = "hold-editor"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/editor/"
+reason = "editor tooling is not part of the developer download"
+
+[[rule]]
+id = "hold-deploy"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/deploy/"
+reason = "timestamp service wrappers are outside the core developer download"
+
+[[rule]]
+id = "hold-telemetry-bench"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/telemetry/bench/"
+reason = "bench results are research"
+
+[[rule]]
+id = "hold-telemetry-evidence"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/telemetry/evidence/"
+reason = "OpenTimestamps anchors"
+
+[[rule]]
+id = "hold-safety-research"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/safety/bypass_"
+reason = "the bypass measurement protocol modules"
+
+[[rule]]
+id = "hold-safety-measure"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/safety/measure_p1.py"
+reason = "the bypass measurement"
+
+[[rule]]
+id = "hold-safety-lockfile-generator"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/safety/gen_p1_lockfile.py"
+reason = "needs the bypass corpus and the embedder"
+
+[[rule]]
+id = "hold-safety-benign"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/safety/benign_corpus.py"
+reason = "the benign corpus of the bypass protocol"
+
+[[rule]]
+id = "hold-evals-research"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/evals/eval_"
+reason = "exploratory evaluations"
+
+[[rule]]
+id = "hold-examples-gemma"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/examples/code_nodes_gemma/"
+reason = "needs a local model server; its flow is carried as a lint fixture"
+
+[[rule]]
+id = "hold-examples-mdflow"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/examples/mdflow_interop/"
+reason = "third party interop example"
+
+[[rule]]
+id = "hold-examples-js-go"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/examples/cli_worker/log_alert"
+reason = "the JavaScript worker example"
+
+[[rule]]
+id = "hold-examples-go"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/examples/cli_worker/release_gate"
+reason = "the Go worker example"
+
+[[rule]]
+id = "hold-shims-bypass"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/bypass_"
+reason = "alias shims for the held bypass modules"
+
+[[rule]]
+id = "hold-shims-evals"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath/eval_"
+reason = "alias shims for the held eval_* modules"
+
+[[rule]]
+id = "hold-shim-measure"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/measure_p1.py"
+reason = "alias shim for a held module"
+
+[[rule]]
+id = "hold-shim-lockfile-generator"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/gen_p1_lockfile.py"
+reason = "alias shim for a held module"
+
+[[rule]]
+id = "hold-shim-benign"
+kind = "hold"
+purpose = "research"
+owner = "research"
+path = "prismpath/benign_corpus.py"
+reason = "alias shim for a held module"
+
+[[rule]]
+id = "hold-research-tree"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "docs/research/"
+reason = "papers, the evidence ledger, protocols"
+
+[[rule]]
+id = "hold-docs-research-only"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "docs/SYSTEM_MAP.md"
+reason = "maps the whole research repository; linked at the adopted revision"
+
+[[rule]]
+id = "hold-docs-position"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "docs/POSITION.md"
+reason = "the public position; linked at the adopted revision"
+
+[[rule]]
+id = "hold-docs-decoder"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "docs/decoder-ring.md"
+reason = "indexes the research repository"
+
+[[rule]]
+id = "hold-docs-objections"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "docs/objections.md"
+reason = "positioning"
+
+[[rule]]
+id = "hold-docs-conventions"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "docs/CONVENTIONS.md"
+reason = "research script conventions"
+
+[[rule]]
+id = "hold-docs-media"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "docs/media/"
+reason = "media"
+
+[[rule]]
+id = "hold-docs-scorecard"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "docs/design/arch-scorecard.md"
+reason = "generated by a research tool"
+
+[[rule]]
+id = "hold-hardware"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath-hw/"
+reason = "the C target, the fabric, the firmware; the compiler was relocated, nothing else enters"
+
+[[rule]]
+id = "hold-ebpf"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath-ebpf/"
+reason = "the kernel target, deferred to a separately reviewed distribution"
+
+[[rule]]
+id = "hold-go"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath-go/"
+reason = "the Go kernel"
+
+[[rule]]
+id = "hold-reflect-bindings"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "prismpath-reflect-bindings/"
+reason = "pins a release candidate dependency; excluded from this release"
+
+[[rule]]
+id = "hold-adapters"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "adapters/"
+reason = "the compliance and fusion adapters"
+
+[[rule]]
+id = "hold-integrations"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "integrations/"
+reason = "Vector and the other integrations; the canary verifier was relocated, nothing else enters"
+
+[[rule]]
+id = "hold-research"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "research/"
+reason = "experiments"
+
+[[rule]]
+id = "hold-formal"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "formal/"
+reason = "the Lean development"
+
+[[rule]]
+id = "hold-roadmap"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "ROADMAP.md"
+reason = "the research roadmap"
+
+[[rule]]
+id = "hold-methodology"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "METHODOLOGY.md"
+reason = "how the research is made"
+
+[[rule]]
+id = "hold-research-tools"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "tools/export_clean.py"
+reason = "the research exporter; the product has its own tools"
+
+[[rule]]
+id = "hold-scratch"
+kind = "hold"
+purpose = "research"
+owner = "research"
+prefix = "adj.deferrals"
+reason = "research scratch"

@@ -10,7 +10,7 @@ shared by the whole package and read through the object at call time, so a test 
 change one field and every job sees it.
 """
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))      # prismpath/mission_control/
 PRISM_DIR = os.path.dirname(PACKAGE_DIR)                      # prismpath/, where the package data lives
@@ -37,7 +37,9 @@ class Settings:
     # Auto-discovery: MC follows whichever sprint is live, whoever started it (control tab / CLI / hand).
     scan: str = "/tmp/*/status.json"                          # glob(s), os.pathsep-separated
     registry: str = "~/.prismpath/sprints.json"               # sprints self-announce here on start
-    audit_path: str = os.path.join(default_state_directory(), "mission_audit.log")
+    # A factory, not a value: the state directory depends on the environment at the time Settings is
+    # built, which is what lets a deployment or a test set XDG_STATE_HOME before the console reads it.
+    audit_path: str = field(default_factory=lambda: os.path.join(default_state_directory(), "mission_audit.log"))
     # SECURITY: loopback only. MC can start and stop the swarm and edit flow files, never LAN reachable.
     host: str = "127.0.0.1"
     port: int = 9109
