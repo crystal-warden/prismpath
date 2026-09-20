@@ -270,7 +270,8 @@ for crate in crates:
 # extracted candidate, so a crates.io release of the same version cannot satisfy it silently.
 patch = "\n".join(f'{crate} = {{ path = "{name}" }}' for crate, name in members.items())
 (candidates / "Cargo.toml").write_text('[workspace]\nresolver = "2"\nmembers = [' + ", ".join(f'"{name}"' for name in members.values()) + ']\n\n[patch.crates-io]\n' + patch + "\n")
-env = dict(**__import__("os").environ, CARGO_TARGET_DIR=str(out / "cargo-target-candidates"))
+env = dict(__import__("os").environ)
+env["CARGO_TARGET_DIR"] = str(out / "cargo-target-candidates")
 meta = json.loads(subprocess.check_output(["cargo", "metadata", "--format-version", "1"], cwd=candidates, env=env))
 by_id = {package["id"]: package for package in meta["packages"]}
 problems = []
