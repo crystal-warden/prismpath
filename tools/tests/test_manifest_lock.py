@@ -54,7 +54,7 @@ def test_narrow_rule_wins_over_broad_prefix(tmp_path):
 
 def test_unlocked_and_held_paths_are_unclassified(tmp_path):
     rules = _rules(tmp_path)
-    lock = {"prismpath/kernel/engine.py": {"path": "prismpath/kernel/engine.py", "rule": "engine", "source_path": "", "source_blob": ""}}
+    lock = {"prismpath/kernel/engine.py": {"path": "prismpath/kernel/engine.py", "rule": "engine", "source_path": "", "source_blob": "", "adopted_revision": ""}}
     paths = ["prismpath/kernel/engine.py", "prismpath/kernel/new_module.py", "prismpath/comparisons/x.json", "elsewhere.txt"]
     findings = dict(product_manifest.unclassified(paths, rules, lock))
     assert "prismpath/kernel/engine.py" not in findings
@@ -64,17 +64,23 @@ def test_unlocked_and_held_paths_are_unclassified(tmp_path):
 
 
 def test_stale_lock_entries_are_reported():
-    lock = {"gone.py": {"path": "gone.py", "rule": "engine", "source_path": "", "source_blob": ""}}
+    lock = {"gone.py": {"path": "gone.py", "rule": "engine", "source_path": "", "source_blob": "", "adopted_revision": ""}}
     assert product_manifest.stale_lock_entries(["present.py"], lock) == ["gone.py"]
 
 
 def test_lock_round_trips(tmp_path):
     lock_path = tmp_path / "manifest.lock"
-    entries = {"b.py": {"path": "b.py", "rule": "engine", "source_path": "b.py", "source_blob": "abc"},
-               "a.py": {"path": "a.py", "rule": "engine", "source_path": "", "source_blob": ""}}
+    entries = {"b.py": {"path": "b.py", "rule": "engine", "source_path": "b.py", "source_blob": "abc", "adopted_revision": "f" * 40},
+               "a.py": {"path": "a.py", "rule": "engine", "source_path": "", "source_blob": "", "adopted_revision": ""}}
     product_manifest.write_lock(entries, lock_path)
     assert list(product_manifest.load_lock(lock_path)) == ["a.py", "b.py"]
     assert product_manifest.load_lock(lock_path)["b.py"]["source_blob"] == "abc"
+    assert product_manifest.load_lock(lock_path)["b.py"]["adopted_revision"] == "f" * 40
+
+
+def test_every_adopted_path_records_its_revision():
+    for entry in product_manifest.load_lock().values():
+        assert bool(entry["source_blob"]) == bool(entry["adopted_revision"]), entry["path"]
 
 
 def test_the_real_tree_is_fully_classified():

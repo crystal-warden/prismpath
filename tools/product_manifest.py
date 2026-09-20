@@ -7,8 +7,10 @@ for adopted copies, `product` for product authored files), and matches either on
 every path under a `prefix`. A hold rule names a research area that must never enter the product.
 
 tools/manifest.lock enumerates every classified product path with the rule that classified it, the
-research source path it was adopted from and that source's git blob id at the adopted revision
-(empty for product authored files). The lock, not the rules, is the review gate: a tracked path that
+research source path it was adopted from, that source's git blob id, and the research revision the
+path was last adopted from (all three empty for product authored files). The revision is per path
+because a promotion may take one component and leave another, so no single revision describes the
+tree; [meta] adopted_revision in the manifest is the seed revision. The lock, not the rules, is the review gate: a tracked path that
 is absent from the lock is unclassified even when a rule matches it, so a new file is always seen and
 acknowledged in a reviewed lock update before it counts as classified. That is why a broad hold or
 ship prefix cannot absorb a new file silently.
@@ -30,7 +32,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = REPO_ROOT / "tools" / "manifest.toml"
 LOCK_PATH = REPO_ROOT / "tools" / "manifest.lock"
-LOCK_FIELDS = ("path", "rule", "source_path", "source_blob")
+LOCK_FIELDS = ("path", "rule", "source_path", "source_blob", "adopted_revision")
 
 
 @dataclass(frozen=True)
@@ -147,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
             rule = classify(repo_path, rules)
             if rule is None or rule.kind == "hold":
                 continue
-            lock[repo_path] = {"path": repo_path, "rule": rule.identifier, "source_path": "", "source_blob": ""}
+            lock[repo_path] = {"path": repo_path, "rule": rule.identifier, "source_path": "", "source_blob": "", "adopted_revision": ""}
             added += 1
         for repo_path in stale:
             del lock[repo_path]

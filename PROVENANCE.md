@@ -5,54 +5,56 @@ regenerate it after the payload settles, never for an unresolved promotion.
 
 ## Adopted research revision
 
-Research: crystal-warden/prism-path at `40a9b05b3523cb4943b583b77c6fb86f93d795ee`. Every adopted path below was copied byte for
-byte from that commit; `tools/manifest.lock` holds the source path and the git blob id per path.
+Research: crystal-warden/prism-path, seeded at `40a9b05b3523cb4943b583b77c6fb86f93d795ee`. Every adopted path was copied byte for
+byte from the research revision recorded for it in `tools/manifest.lock`, which holds the source path,
+the git blob id and the adopted revision per path; a promotion may advance one component's paths and
+leave another's, so the table below lists the distinct revisions each component carries.
 Product owned paths have no source. COMPATIBILITY.md says what the product promises about the
 adopted material; DIVERGENCES.md lists the intentional differences.
 
 ## Components
 
-| Rule | Purpose | Owner | Paths | Adopted from |
-|---|---|---|---|---|
-| python-engine | engine | research | 299 (299 adopted) | `prismpath/` |
-| compiler | engine | research | 1 (1 adopted) | `prismpath-hw/ppt_compile.py` |
-| canary-verifier | facet | research | 1 (1 adopted) | `integrations/vector/canary_verify.py` |
-| flow-fixtures | fixtures | research | 1 (1 adopted) | `prismpath/tests/test_portable_conformance.py` |
-| compiler-references | fixtures | product | 28 (1 adopted) | product authored |
-| authored-fixtures | fixtures | product | 26 (24 adopted) | product authored |
-| product-tests | tests | product | 102 (97 adopted) | product authored |
-| crate-kernel | engine | research | 21 (21 adopted) | `prismpath-rs/` |
-| crate-telemetry | facet | research | 28 (28 adopted) | `prismpath-telemetry-rs/` |
-| crate-hotswap | engine | research | 5 (5 adopted) | `prismpath-hotswap-rs/` |
-| crate-preflight | facet | research | 5 (5 adopted) | `prismpath-preflight/` |
-| crate-fixtures | fixtures | product | 11 (11 adopted) | product authored |
-| crate-fixtures-telemetry | fixtures | product | 4 (4 adopted) | product authored |
-| crate-fixtures-hotswap | fixtures | product | 1 (1 adopted) | product authored |
-| cargo-workspace | packaging | research | 2 (2 adopted) | `Cargo.` |
-| docs | docs | research | 21 (20 adopted) | `docs/` |
-| root-docs | docs | research | 1 (0 adopted) | product authored |
-| spec | docs | research | 1 (1 adopted) | `SPEC.md` |
-| protocol | docs | research | 1 (1 adopted) | `PROTOCOL.md` |
-| root-text | docs | research | 1 (1 adopted) | `GETTING_STARTED.md` |
-| changelog | docs | research | 1 (1 adopted) | `CHANGELOG.md` |
-| product-records | docs | product | 1 (0 adopted) | product authored |
-| divergences | docs | product | 1 (0 adopted) | product authored |
-| provenance | packaging | product | 1 (0 adopted) | product authored |
-| checksums | packaging | product | 1 (0 adopted) | product authored |
-| legal-and-community | packaging | research | 1 (1 adopted) | `LICENSE` |
-| notice | packaging | research | 1 (1 adopted) | `NOTICE` |
-| contributing | packaging | research | 1 (1 adopted) | `CONTRIBUTING.md` |
-| code-of-conduct | packaging | research | 1 (1 adopted) | `CODE_OF_CONDUCT.md` |
-| citation | packaging | research | 1 (1 adopted) | `CITATION.cff` |
-| security | packaging | research | 1 (1 adopted) | `SECURITY.md` |
-| python-packaging | packaging | product | 1 (1 adopted) | product authored |
-| manifest-in | packaging | product | 1 (1 adopted) | product authored |
-| github-action | packaging | research | 1 (1 adopted) | `action.yml` |
-| hooks | packaging | research | 1 (1 adopted) | `.pre-commit-hooks.yaml` |
-| gitignore | packaging | research | 1 (1 adopted) | `.gitignore` |
-| github-templates | packaging | research | 4 (4 adopted) | `.github/` |
-| product-ci | tools | product | 1 (0 adopted) | product authored |
-| tools | tools | product | 19 (0 adopted) | product authored |
+| Rule | Purpose | Owner | Paths | Adopted from | Adopted revisions |
+|---|---|---|---|---|---|
+| python-engine | engine | research | 299 (299 adopted) | `prismpath/` | 40a9b05b3523 |
+| compiler | engine | research | 1 (1 adopted) | `prismpath-hw/ppt_compile.py` | 40a9b05b3523 |
+| canary-verifier | facet | research | 1 (1 adopted) | `integrations/vector/canary_verify.py` | 40a9b05b3523 |
+| flow-fixtures | fixtures | research | 1 (1 adopted) | `prismpath/tests/test_portable_conformance.py` | 40a9b05b3523 |
+| compiler-references | fixtures | product | 28 (1 adopted) | product authored | 40a9b05b3523 |
+| authored-fixtures | fixtures | product | 26 (24 adopted) | product authored | 40a9b05b3523 |
+| product-tests | tests | product | 102 (97 adopted) | product authored | 40a9b05b3523 |
+| crate-kernel | engine | research | 21 (21 adopted) | `prismpath-rs/` | 40a9b05b3523 |
+| crate-telemetry | facet | research | 28 (28 adopted) | `prismpath-telemetry-rs/` | 40a9b05b3523 |
+| crate-hotswap | engine | research | 5 (5 adopted) | `prismpath-hotswap-rs/` | 40a9b05b3523 |
+| crate-preflight | facet | research | 5 (5 adopted) | `prismpath-preflight/` | 40a9b05b3523 |
+| crate-fixtures | fixtures | product | 11 (11 adopted) | product authored | 40a9b05b3523 |
+| crate-fixtures-telemetry | fixtures | product | 4 (4 adopted) | product authored | 40a9b05b3523 |
+| crate-fixtures-hotswap | fixtures | product | 1 (1 adopted) | product authored | 40a9b05b3523 |
+| cargo-workspace | packaging | research | 2 (2 adopted) | `Cargo.` | 40a9b05b3523 |
+| docs | docs | research | 21 (20 adopted) | `docs/` | 40a9b05b3523 |
+| root-docs | docs | research | 1 (0 adopted) | product authored | none |
+| spec | docs | research | 1 (1 adopted) | `SPEC.md` | 40a9b05b3523 |
+| protocol | docs | research | 1 (1 adopted) | `PROTOCOL.md` | 40a9b05b3523 |
+| root-text | docs | research | 1 (1 adopted) | `GETTING_STARTED.md` | 40a9b05b3523 |
+| changelog | docs | research | 1 (1 adopted) | `CHANGELOG.md` | 40a9b05b3523 |
+| product-records | docs | product | 1 (0 adopted) | product authored | none |
+| divergences | docs | product | 1 (0 adopted) | product authored | none |
+| provenance | packaging | product | 1 (0 adopted) | product authored | none |
+| checksums | packaging | product | 1 (0 adopted) | product authored | none |
+| legal-and-community | packaging | research | 1 (1 adopted) | `LICENSE` | 40a9b05b3523 |
+| notice | packaging | research | 1 (1 adopted) | `NOTICE` | 40a9b05b3523 |
+| contributing | packaging | research | 1 (1 adopted) | `CONTRIBUTING.md` | 40a9b05b3523 |
+| code-of-conduct | packaging | research | 1 (1 adopted) | `CODE_OF_CONDUCT.md` | 40a9b05b3523 |
+| citation | packaging | research | 1 (1 adopted) | `CITATION.cff` | 40a9b05b3523 |
+| security | packaging | research | 1 (1 adopted) | `SECURITY.md` | 40a9b05b3523 |
+| python-packaging | packaging | product | 1 (1 adopted) | product authored | 40a9b05b3523 |
+| manifest-in | packaging | product | 1 (1 adopted) | product authored | 40a9b05b3523 |
+| github-action | packaging | research | 1 (1 adopted) | `action.yml` | 40a9b05b3523 |
+| hooks | packaging | research | 1 (1 adopted) | `.pre-commit-hooks.yaml` | 40a9b05b3523 |
+| gitignore | packaging | research | 1 (1 adopted) | `.gitignore` | 40a9b05b3523 |
+| github-templates | packaging | research | 4 (4 adopted) | `.github/` | 40a9b05b3523 |
+| product-ci | tools | product | 1 (0 adopted) | product authored | none |
+| tools | tools | product | 19 (0 adopted) | product authored | none |
 
 ## Relocations and copies
 
@@ -126,4 +128,4 @@ sha256 over one line per tracked file, `<mode> <sha256> <path>` plus newline, so
 path, mode from the git index, sha256 over the exact bytes; `PROVENANCE.md` and `SHA256SUMS` excluded.
 A comparison aid, not a signature.
 
-`3830f24d4da8b7a8896b8a7a7cd76439df0230bd0c89c274d87c13badf0fefcd` over 598 files.
+`dd780da6061413cfeee1d64b57862c84704e187d2bfe20d6d16bb0cbda7271f6` over 598 files.

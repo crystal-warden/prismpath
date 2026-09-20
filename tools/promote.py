@@ -11,16 +11,19 @@ at --revision), and the current product file. The tool decides per path:
 - changed upstream, product copy edited: merge the two changes over the adopted base with
   git merge-file; a clean merge is written, a conflict stops the whole promotion;
 - deleted upstream, product copy unedited: remove the product file; edited: a conflict for review;
+- deleted in the product while upstream changed it: a conflict for review, never a merge over an
+  empty file; deleted in the product while upstream left it alone: the deletion stands;
 - a binary file (a NUL byte in its first 8000 bytes) that is changed upstream and edited in the
   product is a conflict for review, never a guessed merge;
 - a research file under a ship rule's source prefix that no lock entry traces to is an addition; it
   is reported and never written, because adding a path is a classification decision for the lock.
 
-The tool refuses a dirty working tree, computes every decision before touching a file, applies
-nothing when any conflict exists, and otherwise writes the results and stages them so `git diff
---cached` is the complete review. It never commits, never pushes, never merges to main. The lock's
-adopted blobs advance only with --update-lock and only when the promotion had no conflict; provenance
-is regenerated separately, by a person, after review (tools/provenance.py).
+The tool refuses to write on main or master, so a promotion is always staged on a review branch;
+it refuses a dirty working tree, computes every decision before touching a file, applies nothing
+when any conflict exists, and otherwise writes the results and stages them so `git diff --cached`
+is the complete review. It never commits, never pushes, never merges to main. The lock's adopted
+blobs and per path adopted revisions advance only with --update-lock and only when the promotion had
+no conflict; provenance is regenerated separately, by a person, after review (tools/provenance.py).
 
 Research is read through git plumbing on a local clone at a pinned revision; its working tree is
 never read and never written.
@@ -141,6 +144,13 @@ def build_plan(product: Path, research: Path, revision: str, selected: set[str] 
         if proposed == adopted:
             plan.decisions.append(Decision(entry["path"], entry["source_path"], "unchanged"))
             continue
+        if current is None:
+            # The product removed its copy. An upstream change to a file the product no longer has is
+            # a decision for a person, and an upstream deletion of it changes nothing.
+            kind = "unchanged" if proposed is None else "conflict"
+            plan.decisions.append(Decision(entry["path"], entry["source_path"], kind,
+                                           "" if proposed is None else "deleted in the product but changed upstream"))
+            continue
         edited = current != adopted
         if proposed is None:
             if not edited:
@@ -153,7 +163,7 @@ def build_plan(product: Path, research: Path, revision: str, selected: set[str] 
             plan.decisions.append(Decision(entry["path"], entry["source_path"], "update", "changed upstream, product copy unedited", proposed, theirs))
             continue
         base = blob_bytes(research, adopted)
-        ours = (product / entry["path"]).read_bytes() if current else b""
+        ours = (product / entry["path"]).read_bytes()
         if is_binary(base) or is_binary(ours) or is_binary(theirs):
             plan.decisions.append(Decision(entry["path"], entry["source_path"], "conflict", "binary changed upstream and edited in the product"))
             continue
@@ -166,7 +176,14 @@ def build_plan(product: Path, research: Path, revision: str, selected: set[str] 
     return plan
 
 
-def apply_plan(product: Path, plan: Plan, update_lock: bool) -> None:
+PROTECTED_BRANCHES = ("main", "master")
+
+
+def current_branch(product: Path) -> str:
+    return git(product, "rev-parse", "--abbrev-ref", "HEAD").stdout.decode().strip()
+
+
+def apply_plan(product: Path, plan: Plan, update_lock: bool, revision: str) -> None:
     lock = product_manifest.load_lock(product / "tools" / "manifest.lock")
     for decision in plan.decisions:
         if decision.kind in ("update", "merge"):
@@ -176,6 +193,7 @@ def apply_plan(product: Path, plan: Plan, update_lock: bool) -> None:
             git(product, "add", "--", decision.product_path)
             if update_lock:
                 lock[decision.product_path]["source_blob"] = decision.new_blob or ""
+                lock[decision.product_path]["adopted_revision"] = revision
         elif decision.kind == "remove":
             git(product, "rm", "-q", "--", decision.product_path)
             if update_lock:
@@ -213,6 +231,9 @@ def main(argv: list[str] | None = None) -> int:
     if git(research, "rev-parse", "--verify", "--quiet", f"{args.revision}^{{commit}}").returncode != 0:
         print(f"promote: revision {args.revision} does not resolve in {research}", file=sys.stderr)
         return 2
+    if not args.dry_run and current_branch(product) in PROTECTED_BRANCHES:
+        print(f"promote: refusing to stage on {current_branch(product)}; create a review branch first", file=sys.stderr)
+        return 2
     if not args.dry_run and git(product, "status", "--porcelain").stdout.strip():
         print("promote: the product working tree is dirty; commit or stash first", file=sys.stderr)
         return 2
@@ -223,10 +244,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.dry_run:
         return 0
-    apply_plan(product, plan, args.update_lock)
+    full_revision = git(research, "rev-parse", f"{args.revision}^{{commit}}").stdout.decode().strip()
+    apply_plan(product, plan, args.update_lock, full_revision)
     staged = git(product, "diff", "--cached", "--stat").stdout.decode()
     print(staged if staged.strip() else "nothing staged")
-    print("review with: git diff --cached ; then commit on a review branch. The adopted revision in tools/manifest.toml is a reviewed edit.")
+    print("review with: git diff --cached ; then commit on this review branch. COMPATIBILITY.md and DIVERGENCES.md are reviewed edits.")
     return 0
 
 

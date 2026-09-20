@@ -76,11 +76,11 @@ def test_compare_upstream_classifications(tmp_path: Path) -> None:
     (product_directory / "tools" / "manifest.toml").write_text(manifest_content, encoding="utf-8")
 
     lock_content = (
-        "path\trule\tsource_path\tsource_blob\n"
-        f"prismpath/unchanged.py\tengine\tprismpath/unchanged.py\t{unchanged_blob}\n"
-        f"prismpath/changed.py\tengine\tprismpath/changed.py\t{changed_blob}\n"
-        f"prismpath/deleted.py\tengine\tprismpath/deleted.py\t{deleted_blob}\n"
-        f"prismpath/product_edited.py\tengine\tprismpath/product_edited.py\t{product_edited_blob}\n"
+        "path\trule\tsource_path\tsource_blob\tadopted_revision\n"
+        f"prismpath/unchanged.py\tengine\tprismpath/unchanged.py\t{unchanged_blob}\t{adopted_revision}\n"
+        f"prismpath/changed.py\tengine\tprismpath/changed.py\t{changed_blob}\t{adopted_revision}\n"
+        f"prismpath/deleted.py\tengine\tprismpath/deleted.py\t{deleted_blob}\t{adopted_revision}\n"
+        f"prismpath/product_edited.py\tengine\tprismpath/product_edited.py\t{product_edited_blob}\t{adopted_revision}\n"
     )
     (product_directory / "tools" / "manifest.lock").write_text(lock_content, encoding="utf-8")
 

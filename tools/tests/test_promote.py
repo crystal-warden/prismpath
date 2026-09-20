@@ -78,12 +78,14 @@ def _setup(tmp_path):
         (product / "pkg" / name).write_bytes((research / "src" / name).read_bytes())
     (product / "tools").mkdir()
     (product / "tools" / "manifest.toml").write_text(MANIFEST.format(revision=adopted))
-    entries = {f"pkg/{name}": {"path": f"pkg/{name}", "rule": "engine", "source_path": f"src/{name}", "source_blob": _blob(research, adopted, f"src/{name}")}
+    entries = {f"pkg/{name}": {"path": f"pkg/{name}", "rule": "engine", "source_path": f"src/{name}", "source_blob": _blob(research, adopted, f"src/{name}"), "adopted_revision": adopted}
                for name in ("text.py", "gone.py", "binary.bin", "stable.py")}
-    entries["tools/manifest.toml"] = {"path": "tools/manifest.toml", "rule": "tools", "source_path": "", "source_blob": ""}
-    entries["tools/manifest.lock"] = {"path": "tools/manifest.lock", "rule": "tools", "source_path": "", "source_blob": ""}
+    entries["tools/manifest.toml"] = {"path": "tools/manifest.toml", "rule": "tools", "source_path": "", "source_blob": "", "adopted_revision": ""}
+    entries["tools/manifest.lock"] = {"path": "tools/manifest.lock", "rule": "tools", "source_path": "", "source_blob": "", "adopted_revision": ""}
     product_manifest.write_lock(entries, product / "tools" / "manifest.lock")
     _commit(product, "seed")
+    # promotions are staged on a review branch, never on the default branch
+    _git(product, "checkout", "-q", "-b", "promote/review")
     return research, product, adopted
 
 
@@ -104,7 +106,7 @@ def test_update_merge_addition_and_lock_advance(tmp_path):
     assert kinds["pkg/gone.py"] == "unchanged" and kinds["pkg/binary.bin"] == "unchanged"
     assert kinds["pkg/new_module.py"] == "addition"
     assert "pkg/research/held.py" not in kinds
-    promote.apply_plan(product, plan, update_lock=True)
+    promote.apply_plan(product, plan, update_lock=True, revision=proposed)
     merged = (product / "pkg" / "text.py").read_text()
     assert merged == "research line\nline one\nline two\nline three\nproduct line\n"
     assert (product / "pkg" / "stable.py").read_text() == "stable, changed upstream\n"
@@ -112,6 +114,8 @@ def test_update_merge_addition_and_lock_advance(tmp_path):
     lock = product_manifest.load_lock(product / "tools" / "manifest.lock")
     assert lock["pkg/text.py"]["source_blob"] == _blob(research, proposed, "src/text.py")
     assert lock["pkg/stable.py"]["source_blob"] == _blob(research, proposed, "src/stable.py")
+    assert lock["pkg/text.py"]["adopted_revision"] == proposed and lock["pkg/stable.py"]["adopted_revision"] == proposed
+    assert lock["pkg/gone.py"]["adopted_revision"] == adopted, "an untouched path keeps the revision it was adopted from"
     staged = _git(product, "diff", "--cached", "--name-only").stdout.decode().split()
     assert "pkg/text.py" in staged and "pkg/stable.py" in staged and "tools/manifest.lock" in staged
 
@@ -146,7 +150,7 @@ def test_removal_of_an_unedited_file(tmp_path):
     plan = promote.build_plan(product, research, proposed, None)
     kinds = {decision.product_path: decision.kind for decision in plan.decisions}
     assert kinds["pkg/gone.py"] == "remove"
-    promote.apply_plan(product, plan, update_lock=True)
+    promote.apply_plan(product, plan, update_lock=True, revision=proposed)
     assert not (product / "pkg" / "gone.py").exists()
     assert "pkg/gone.py" not in product_manifest.load_lock(product / "tools" / "manifest.lock")
 
@@ -157,3 +161,32 @@ def test_dirty_tree_and_bad_inputs_are_refused(tmp_path):
     assert promote.main(["--research", str(research), "--revision", adopted, "--repo", str(product)]) == 2
     assert promote.main(["--research", str(tmp_path / "nowhere"), "--revision", adopted, "--repo", str(product)]) == 2
     assert promote.main(["--research", str(research), "--revision", "no-such-ref", "--repo", str(product)]) == 2
+
+
+def test_product_deletion_is_a_conflict_when_upstream_changed_and_stands_otherwise(tmp_path):
+    research, product, adopted = _setup(tmp_path)
+    (product / "pkg" / "text.py").unlink()
+    (product / "pkg" / "stable.py").unlink()
+    _commit(product, "product deleted two files")
+    (research / "src" / "text.py").write_text("")
+    proposed = _commit(research, "upstream emptied text.py, left stable.py alone")
+    plan = promote.build_plan(product, research, proposed, None)
+    kinds = {decision.product_path: decision.kind for decision in plan.decisions}
+    assert kinds["pkg/text.py"] == "conflict", "an upstream change to a file the product deleted is a review decision, not a merge over nothing"
+    assert kinds["pkg/stable.py"] == "unchanged", "the product's deletion stands when upstream did not touch the file"
+
+
+def test_promotion_refuses_the_default_branch(tmp_path):
+    research, product, adopted = _setup(tmp_path)
+    (research / "src" / "stable.py").write_text("changed\n")
+    proposed = _commit(research, "upstream change")
+    default_branch = _git(product, "rev-list", "--max-parents=0", "--format=%D", "HEAD").stdout.decode()
+    _git(product, "checkout", "-q", "-")
+    assert promote.current_branch(product) in promote.PROTECTED_BRANCHES
+    assert promote.main(["--research", str(research), "--revision", proposed, "--repo", str(product)]) == 2
+    assert (product / "pkg" / "stable.py").read_text() == "stable\n"
+    assert promote.main(["--research", str(research), "--revision", proposed, "--repo", str(product), "--dry-run"]) == 0
+    _git(product, "checkout", "-q", "promote/review")
+    assert promote.main(["--research", str(research), "--revision", proposed, "--repo", str(product)]) == 0
+    assert (product / "pkg" / "stable.py").read_text() == "changed\n"
+

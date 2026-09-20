@@ -76,24 +76,32 @@ import hashlib, sys, tarfile, zipfile
 from pathlib import Path
 first, second = Path(sys.argv[1]), Path(sys.argv[2])
 def wheel_members(path):
+    """Every member's content hash and external mode bits; nothing excluded. The zip entry timestamps
+    are pinned by SOURCE_DATE_EPOCH and so compared too."""
     with zipfile.ZipFile(path) as archive:
-        return {name: hashlib.sha256(archive.read(name)).hexdigest() for name in archive.namelist()
-                if not name.endswith("/") and not name.endswith("RECORD") and not name.endswith("WHEEL")}
+        return {info.filename: (hashlib.sha256(archive.read(info.filename)).hexdigest(), info.external_attr >> 16, info.date_time)
+                for info in archive.infolist()}
 def sdist_members(path):
+    """Every member's content hash, mode, type, owner names and ids. The one normalized field is the
+    tar member mtime: setuptools stamps directory entries and a few generated files with the build
+    time rather than SOURCE_DATE_EPOCH, a documented incidental difference; the members' bytes and
+    modes are compared in full, PKG-INFO included."""
     with tarfile.open(path) as archive:
         out = {}
         for member in archive.getmembers():
-            if member.isfile() and not member.name.endswith("PKG-INFO"):
-                out[member.name.split("/", 1)[1]] = (hashlib.sha256(archive.extractfile(member).read()).hexdigest(), member.mode & 0o111)
+            content = hashlib.sha256(archive.extractfile(member).read()).hexdigest() if member.isfile() else None
+            out[member.name.split("/", 1)[1] if "/" in member.name else member.name] = (content, member.mode, member.type, member.uname, member.gname, member.uid, member.gid)
         return out
 problems = []
 for kind, members, glob in (("wheel", wheel_members, "*.whl"), ("sdist", sdist_members, "*.tar.gz")):
     one, two = sorted(first.glob(glob)), sorted(second.glob(glob))
     if len(one) != 1 or len(two) != 1:
         problems.append(f"{kind}: expected one artifact per build"); continue
-    if members(one[0]) != members(two[0]):
-        problems.append(f"{kind}: normalized contents differ between two builds")
-print("\n".join(problems) if problems else "identical normalized contents and modes across two builds (RECORD, WHEEL and PKG-INFO excluded)")
+    first_members, second_members = members(one[0]), members(two[0])
+    differing = sorted(name for name in set(first_members) | set(second_members) if first_members.get(name) != second_members.get(name))
+    if differing:
+        problems.append(f"{kind}: {len(differing)} member(s) differ between two builds: {differing[:8]}")
+print("\n".join(problems) if problems else "identical contents, modes, types and owners across two builds; wheel timestamps identical; only sdist member mtimes normalized")
 sys.exit(1 if problems else 0)
 PY
     run_gate "package boundary (wheel and sdist)" "$OUT/boundary-package.log" bash -c "cd '$EXPORT' && '$PYTHON' -m tools.check_boundary --wheel '$WHEEL' --sdist '$SDIST'"
@@ -111,7 +119,8 @@ PY
       \$V/prismpath portable incident_severity.md
       \$V/python -m prismpath.kernel.ppt_compile incident_severity.md -o incident_severity.ppt --json incident_severity.names.json
       test -s incident_severity.ppt
-      \$V/prismpath facet quantize incident_severity.md '{\"severity\": 3}' > /dev/null || \$V/prismpath facet --help > /dev/null
+      \$V/prismpath facet quantize incident_severity.md '{\"data_at_risk\": false, \"user_facing\": true, \"error_rate\": 7}' > facet.out
+      grep -Eq '^\([0-9]+(, [0-9]+)*\)$' facet.out
       if \$V/prismpath compile incident_severity.md --tier p0 2> compile.err; then echo 'compile must fail'; exit 1; fi
       grep -q 'not available in this distribution' compile.err
       echo 'base smoke ok'"
@@ -122,9 +131,23 @@ PY
     run_gate "python full: skip budget" "$OUT/skips.log" "$PYTHON" - "$OUT/full-tests.log" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
-allowed = ("sentence_transformers", "needs the real bge embedder", "torch", "transformers", "playwright", "bwrap", "tomllib needs Python 3.11")
+# One allowance per test file, each an optional extra deliberately absent from the acceptance venv.
+# bwrap is not allowed: the sandbox test must run with enforcement, so its absence is a blocker.
+allowed = {
+    "test_gates_behavioral_findings.py": "could not import 'playwright'",
+    "test_gates_infra_error.py": "could not import 'playwright'",
+    "test_llm_local.py": "could not import 'torch'",
+    "test_lockfile.py": "needs the real bge embedder",
+    "test_router.py": "could not import 'sentence_transformers'",
+    "test_facet_init.py": "tomllib needs Python 3.11",
+}
 skips = re.findall(r"^SKIPPED \[\d+\] (.+)$", text, re.M)
-unbudgeted = [line for line in skips if not any(reason in line for reason in allowed)]
+def budgeted(line):
+    for test_file, reason in allowed.items():
+        if f"/{test_file}:" in line and reason in line:
+            return True
+    return False
+unbudgeted = [line for line in skips if not budgeted(line)]
 print("skips:", len(skips)); [print("  ", line) for line in skips]
 if unbudgeted:
     print("UNBUDGETED SKIPS:"); [print("  ", line) for line in unbudgeted]
@@ -172,13 +195,19 @@ try:
         status, body = get(asset); assert status == 200 and body, asset
     print("static assets served")
     status, validation = post("/api/v1/inspect/validate", {"flow_md": "flows/triage.md"}); print("validate:", status, str(validation)[:120])
+    assert status == 200 and validation.get("ok") is True and validation.get("errors") == 0, validation
     status, facet = post("/api/v1/policy/facet-encode", {"flow_md": "flows/triage.md", "reading_json": {"priority": 7}}); print("facet-encode:", status, str(facet)[:160])
+    assert status == 200 and facet.get("quantized") == {"priority": 1} and facet.get("payload_hex"), facet
     status, verified = post("/api/v1/policy/pack-verify", {"ppt_path": "triage.ppt", "pub": ["keys/authority.pub"]}); print("pack-verify:", status, verified.get("ok"), verified.get("reasons"))
     assert verified.get("ok") is True, verified
     status, started = post("/api/v1/sprint/start", {"proj": str(project), "agent": "served", "seconds": 1, "max_iters": 1}); print("sprint start:", status, started)
     time.sleep(4)
-    log = (project / "mc_sprint.log").read_text() if (project / "mc_sprint.log").exists() else ""
+    log_path = project / "mc_sprint.log"
+    assert log_path.exists(), "the sprint wrote no log: it was not launched in the project"
+    log = log_path.read_text()
+    assert "[sprint]" in log, f"the sprint module did not run: {log[-500:]}"
     assert "No module named" not in log and "can't open file" not in log, log[-500:]
+    assert "port=9)" in log, "the sprint did not fail on the closed loopback endpoint it was pointed at"
     assert "8888" not in log, "the sprint reached for the default model endpoint"
     print("sprint subprocess launched from the installed module in the project; log head:", log[:300].replace("\n", " | "))
     # The audit log is created by the first audited action, and the sprint start is one; only now
@@ -225,7 +254,45 @@ if [ "$LEG" = "full" ] || [ "$LEG" = "rust" ]; then
       run_gate "rust: cargo package $crate" "$OUT/package-$crate.log" bash -c "cd '$EXPORT/$crate' && cargo package -q --allow-dirty --no-verify --list > '$OUT/package-$crate.list' && cargo package -q --allow-dirty --no-verify"
       run_gate "rust: extracted package tests $crate" "$OUT/extracted-$crate.log" bash -c "rm -rf '$OUT/extracted-$crate' && mkdir '$OUT/extracted-$crate' && tar -xzf '$OUT'/cargo-target/package/$crate-*.crate -C '$OUT/extracted-$crate' && cd '$OUT'/extracted-$crate/$crate-* && cargo test -q --offline 2>/dev/null || cargo test -q"
     done
-    run_gate "rust: packaged dependency resolution" "$OUT/resolve.log" bash -c "cd '$EXPORT' && cargo metadata --format-version 1 > /dev/null && grep -q 'path' prismpath-telemetry-rs/Cargo.toml && echo 'path dependencies present: publishing needs each dependency published first, in order prismpath-rs, prismpath-telemetry-rs, then the rest' "
+    run_gate "rust: extracted candidates resolve one another, not the registry" "$OUT/candidates.log" "$PYTHON" - "$OUT" <<'PY'
+import json, shutil, subprocess, sys
+from pathlib import Path
+out = Path(sys.argv[1]); candidates = out / "candidates"
+shutil.rmtree(candidates, ignore_errors=True); candidates.mkdir()
+crates = ["prismpath-rs", "prismpath-telemetry-rs", "prismpath-hotswap-rs", "prismpath-preflight"]
+members = {}
+for crate in crates:
+    extracted = next((out / f"extracted-{crate}").glob(f"{crate}-*"))
+    shutil.copytree(extracted, candidates / extracted.name)
+    (candidates / extracted.name / "Cargo.lock").unlink(missing_ok=True)
+    members[crate] = extracted.name
+# A workspace of the four extracted packages where every inter crate dependency is patched to the
+# extracted candidate, so a crates.io release of the same version cannot satisfy it silently.
+patch = "\n".join(f'{crate} = {{ path = "{name}" }}' for crate, name in members.items())
+(candidates / "Cargo.toml").write_text('[workspace]\nresolver = "2"\nmembers = [' + ", ".join(f'"{name}"' for name in members.values()) + ']\n\n[patch.crates-io]\n' + patch + "\n")
+env = dict(**__import__("os").environ, CARGO_TARGET_DIR=str(out / "cargo-target-candidates"))
+meta = json.loads(subprocess.check_output(["cargo", "metadata", "--format-version", "1"], cwd=candidates, env=env))
+by_id = {package["id"]: package for package in meta["packages"]}
+problems = []
+for node in meta["resolve"]["nodes"]:
+    package = by_id[node["id"]]
+    if package["name"] not in crates:
+        continue
+    for dependency_id in node["dependencies"]:
+        dependency = by_id[dependency_id]
+        if dependency["name"] in crates:
+            source = dependency.get("source") or dependency["manifest_path"]
+            expected = str(candidates / members[dependency["name"]] / "Cargo.toml")
+            if dependency["manifest_path"] != expected or dependency.get("source"):
+                problems.append(f"{package['name']} resolved {dependency['name']} {dependency['version']} from {source}, not the candidate at {expected}")
+            else:
+                print(f"{package['name']} -> {dependency['name']} {dependency['version']} from the extracted candidate")
+if problems:
+    print("\n".join(problems)); sys.exit(1)
+completed = subprocess.run(["cargo", "test", "--workspace", "-q"], cwd=candidates, env=env, capture_output=True, text=True)
+print(completed.stdout[-1500:], completed.stderr[-1500:])
+sys.exit(completed.returncode)
+PY
   fi
 fi
 
