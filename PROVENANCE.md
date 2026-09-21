@@ -128,4 +128,4 @@ sha256 over one line per tracked file, `<mode> <sha256> <path>` plus newline, so
 path, mode from the git index, sha256 over the exact bytes; `PROVENANCE.md` and `SHA256SUMS` excluded.
 A comparison aid, not a signature.
 
-`3d66c15bef73b36353e175caa3278a85c5cf24532ee77566fb6bca3b518c0af5` over 601 files.
+`d30b449f15f97807de6153096ed655177f5f97723de49c9b2bf903c965ff4d3d` over 601 files.
