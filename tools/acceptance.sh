@@ -27,6 +27,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+case "$LEG" in
+  full|python|rust) ;;
+  *) echo "unknown leg '$LEG': use full, python or rust" >&2; exit 2 ;;
+esac
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 COMMIT="$(git -C "$REPO" rev-parse HEAD)"
 OUT="${OUT:-$(mktemp -d -t prismpath-acceptance-XXXXXX)}"
@@ -303,6 +308,32 @@ if [ "$LEG" = "full" ]; then
   run_gate "product maintenance suite" "$OUT/tools-tests.log" bash -c "cd '$REPO' && '$OUT/venv-full/bin/python' -m pytest tools/tests -q -p no:cacheprovider"
   run_gate "cross language tests" "$OUT/cross-language.log" bash -c "cd '$EXPORT' && '$OUT/venv-full/bin/python' -m pytest prismpath/tests -q -p no:cacheprovider -m cross_language -rs"
   run_gate "provenance check" "$OUT/provenance.log" bash -c "cd '$REPO' && '$OUT/venv-full/bin/python' -m tools.provenance check"
+fi
+
+# A leg passes only when every gate it is defined to run has recorded a status. A gate that never
+# ran leaves no row, and a report with missing rows is a failure, not a pass by omission.
+PYTHON_GATES=("build wheel and sdist" "build again for reproducibility" "reproducible wheel and sdist" "package boundary (wheel and sdist)" "python base: fresh venv install of the wheel" "python base: CLI, import and runtime asset smoke" "python base: installed package test (base extras only)" "python full: install with signing, control-plane, test extras" "python full: runtime suite against the installed package" "python full: skip budget" "python full: fuzz the predicate sandbox" "canary verifier from the installed module" "signed pack from the installed wheel: keygen, envelope, compile, pack, verify" "mission control: installed launch, defaults, assets, validate, facet, pack verify, sprint subprocess" "source archive: unpack, rebuild, install, promised tests present" "documentation: examples and quickstart commands")
+RUST_GATES=("rust: workspace tests" "rust: clippy, warnings denied" "rust: cargo package prismpath-rs" "rust: extracted package tests prismpath-rs" "rust: cargo package prismpath-telemetry-rs" "rust: extracted package tests prismpath-telemetry-rs" "rust: cargo package prismpath-hotswap-rs" "rust: extracted package tests prismpath-hotswap-rs" "rust: cargo package prismpath-preflight" "rust: extracted package tests prismpath-preflight" "rust: extracted candidates resolve one another, not the registry")
+FULL_GATES=("inventory and boundary: repository" "compatibility" "product maintenance suite" "cross language tests" "provenance check")
+EXPECTED=("export tracked tree")
+case "$LEG" in
+  full) EXPECTED+=("${PYTHON_GATES[@]}" "${RUST_GATES[@]}" "${FULL_GATES[@]}") ;;
+  python) EXPECTED+=("${PYTHON_GATES[@]}") ;;
+  rust) EXPECTED+=("${RUST_GATES[@]}") ;;
+esac
+for gate in "${EXPECTED[@]}"; do
+  if ! grep -Fq "| $gate | " "$REPORT"; then record "missing gate: $gate" FAIL "the leg defines this gate and it recorded no status"; fi
+done
+
+# PrismPath judging its own release eligibility over the facts above (tools/release_policy.md). The
+# verdict is advisory: it can add a failure to this report, never remove one, and the exit status of
+# this script stays the authority, so a defect in the engine cannot certify the engine.
+if [ "$LEG" = "full" ] && [ -x "$OUT/venv-full/bin/python" ]; then
+  if (cd "$EXPORT" && "$OUT/venv-full/bin/python" -m tools.release_eligibility --out "$OUT" --revision "$COMMIT" > "$OUT/release-eligibility.log" 2>&1); then
+    record "release eligibility (PrismPath flow, advisory)" pass "$(head -c 160 "$OUT/release-eligibility.log")"
+  else
+    record "release eligibility (PrismPath flow, advisory)" FAIL "$(head -c 160 "$OUT/release-eligibility.log")"
+  fi
 fi
 
 {

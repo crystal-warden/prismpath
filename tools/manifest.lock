@@ -592,6 +592,8 @@ tools/manifest.toml	tools
 tools/product_manifest.py	tools			
 tools/promote.py	tools			
 tools/provenance.py	tools			
+tools/release_eligibility.py	tools			
+tools/release_policy.md	tools			
 tools/tests/__init__.py	tools			
 tools/tests/test_check_boundary.py	tools			
 tools/tests/test_compare_upstream.py	tools			
@@ -599,3 +601,4 @@ tools/tests/test_fixture_sync.py	tools
 tools/tests/test_manifest_lock.py	tools			
 tools/tests/test_promote.py	tools			
 tools/tests/test_provenance.py	tools			
+tools/tests/test_release_eligibility.py	tools			

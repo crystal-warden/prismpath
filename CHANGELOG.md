@@ -26,6 +26,21 @@ changelog as adopted at that commit; the entries here are the product's own.
   and the maintenance tools under `tools/` with their tests under `tools/tests/`.
 
 ### Changed
+- **The signed pack host commits a swap in a fixed durable order: intent record, version floor, audit
+  event, then the reference flip.** Before, the flip came first, so a failure writing the floor or the
+  evidence left the new policy active with the floor and the audit log behind it, against the documented
+  promise. A failure now raises with the previous policy active; an interrupted commit is recorded as
+  `swap_incomplete` at the next start and the same image at the same version may complete on retry
+  although the floor already equals it.
+- **The audit log persists before it commits.** `AuditLog.append` writes, flushes and fsyncs the event
+  before adding its leaf, raises `AuditWriteError` with the log unchanged when the file refuses it, and
+  `verify_persisted` answers the persistence question `verify_log` never did.
+- **The canary verifier has a strict mode.** `--id-field` correlates event identity and sequence between
+  the legs, so a lost event replaced by a duplicate on the same route no longer passes; the route only
+  mode stays the default for captures without an identity.
+- **Acceptance refuses an unknown leg and a missing gate**, and a PrismPath flow, `tools/release_policy.md`,
+  decides release eligibility over the acceptance facts with a receipt bound to the revision, the
+  artifacts, the policy image and the reports (advisory; the script's exit status stays authoritative).
 - Mission Control's audit log defaults to the platform state directory (`MC_AUDIT` still overrides) and
   a sprint launch runs the installed module under the console's interpreter in the followed project.
 - `prismpath compile` is withdrawn: it built a bundle around the JavaScript engine, which is not carried.

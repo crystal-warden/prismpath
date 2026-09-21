@@ -22,3 +22,7 @@ difference nobody intended, which is a defect.
 | `pyproject.toml`: readme, extras, package data, doc files, URLs | research packaging | the product is its own distribution; the comparisons extra and the JavaScript package data have no subject here |
 | README, CONTRIBUTING, GETTING_STARTED, docs index, guides | research wording and links | the product is a self contained developer download; research links are pinned to the adopted revision |
 | `CHANGELOG.md` separates product changes from the imported research history | one history | a reader must tell shipped product changes from research changes |
+| `prismpath/hotswap/policy_host.py` commits intent, floor, evidence, then flips; recovers an interrupted commit | flips first, then persists the floor and appends the evidence | a persistence failure left a policy active that the floor and the audit log did not know about; proposed to research |
+| `prismpath/ledgers/audit_log.py` writes and fsyncs before committing a leaf, raises `AuditWriteError`, offers `verify_persisted` | commits to memory first, silent on a failed write | an event that was never persisted must not verify as evidence; proposed to research |
+| `prismpath/telemetry/canary_verify.py` strict identity mode (`--id-field`) | route parity only | a duplicate standing in for a lost event escaped route parity; proposed to research |
+| `prismpath/telemetry/selfheal.py` and `README.md` describe the audit log as the real Merkle primitive | call it a stub | the description was stale |
