@@ -86,7 +86,7 @@ def _compare_identities(raw_ids: List[Any], decoded_ids: List[Any]) -> dict:
     return {"ok": ok, "missing": [str(identifier) for identifier in missing],
             "duplicated": [str(identifier) for identifier in duplicated],
             "extra": [str(identifier) for identifier in extra],
-            "unidentified": [unidentified], "reordered": reordered}
+            "unidentified": unidentified, "reordered": reordered}
 
 
 def main() -> int:
@@ -190,7 +190,7 @@ def main() -> int:
                   + ("every decoded event is the raw event at the same position, none lost, none duplicated."
                      if identity["ok"] else
                      f"{len(identity['missing'])} lost, {len(identity['duplicated'])} duplicated, "
-                     f"{len(identity['unidentified'])} without identity, {identity['reordered']} out of sequence."))
+                     f"{identity['unidentified']} without identity, {identity['reordered']} out of sequence."))
         for identifier in identity["missing"][:10]:
             md.append(f"- raw event `{identifier}` has no decoded twin")
         for identifier in identity["duplicated"][:10]:

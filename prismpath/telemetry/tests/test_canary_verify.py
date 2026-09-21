@@ -102,9 +102,12 @@ def test_a_duplicate_standing_in_for_a_lost_event_passes_route_parity_but_fails_
     decoded = [{"id": "a", "facet_route": "critical"}, {"id": "a", "facet_route": "critical"}, {"id": "c", "facet_route": "ok"}]
     route_only = _run(tmp_path, raw, decoded)
     assert route_only.returncode == 0 and "**PARITY.**" in route_only.stdout
-    strict = _run(tmp_path, raw, decoded, "--id-field", "id")
+    strict = _run(tmp_path, raw, decoded, "--id-field", "id", "--json", str(tmp_path / "out.json"))
     assert strict.returncode == 1, strict.stdout + strict.stderr
     assert "NO PARITY" in strict.stdout and "`b` has no decoded twin" in strict.stdout and "`a` appears more than once" in strict.stdout
+    assert "1 lost, 1 duplicated, 0 without identity" in strict.stdout
+    identity = json.loads((tmp_path / "out.json").read_text())["identity"]
+    assert identity == {"ok": False, "missing": ["b"], "duplicated": ["a"], "extra": [], "unidentified": 0, "reordered": 1}
 
 
 def test_strict_mode_passes_when_identities_match_in_sequence(tmp_path):
@@ -119,5 +122,5 @@ def test_strict_mode_refuses_an_event_without_identity(tmp_path):
     raw = [{"id": "a", "temp": 95, "armed": True}, {"temp": 10, "armed": False}]
     decoded = [{"id": "a", "facet_route": "critical"}, {"facet_route": "ok"}]
     result = _run(tmp_path, raw, decoded, "--id-field", "id")
-    assert result.returncode == 1 and "without identity" in result.stdout
+    assert result.returncode == 1 and "2 without identity" in result.stdout
 
