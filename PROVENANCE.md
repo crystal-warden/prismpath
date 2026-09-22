@@ -16,7 +16,7 @@ adopted material; DIVERGENCES.md lists the intentional differences.
 
 | Rule | Purpose | Owner | Paths | Adopted from | Adopted revisions |
 |---|---|---|---|---|---|
-| python-engine | engine | research | 302 (299 adopted) | `prismpath/` | 40a9b05b3523 |
+| python-engine | engine | research | 304 (299 adopted) | `prismpath/` | 40a9b05b3523 |
 | compiler | engine | research | 1 (1 adopted) | `prismpath-hw/ppt_compile.py` | 40a9b05b3523 |
 | canary-verifier | facet | research | 1 (1 adopted) | `integrations/vector/canary_verify.py` | 40a9b05b3523 |
 | flow-fixtures | fixtures | research | 1 (1 adopted) | `prismpath/tests/test_portable_conformance.py` | 40a9b05b3523 |
@@ -129,4 +129,4 @@ sha256 over one line per tracked file, `<mode> <sha256> <path>` plus newline, so
 path, mode from the git index, sha256 over the exact bytes; `PROVENANCE.md` and `SHA256SUMS` excluded.
 A comparison aid, not a signature.
 
-`0d3e8cbf6f13b0c20715a5439b71b3b5f5f89db9ce73904f327d319a70729e4f` over 606 files.
+`e40ad20814e4cd1b0089dc66ec9968a6515668be73a64d0a0c531fef6e9c85bb` over 608 files.
