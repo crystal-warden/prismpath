@@ -35,6 +35,13 @@ changelog as adopted at that commit; the entries here are the product's own.
 - **The audit log persists before it commits.** `AuditLog.append` writes, flushes and fsyncs the event
   before adding its leaf, raises `AuditWriteError` with the log unchanged when the file refuses it, and
   `verify_persisted` answers the persistence question `verify_log` never did.
+- **One input contract for Facet on both sides of the stack.** `quantizer.accept_value` and its Rust
+  twin decide what a reading value is; `wire.encode_reading_checked` and `wire::encode_reading_checked`
+  refuse a rejected value with the field and the reason instead of truncating, coercing or reading it
+  as zero; both preflight tools report `rejected_by_contract` per field and withhold READY on any
+  rejection; `conformance/inputs.json` pins it in both languages. The Rust permissive path no longer
+  reads a string that is not an integer literal as zero, which the Python reference never did; the
+  Rust preflight's `coerced_to_zero_by_field` key is gone with the coercion.
 - **The canary verifier has a strict mode.** `--id-field` correlates event identity and sequence between
   the legs, so a lost event replaced by a duplicate on the same route no longer passes; the route only
   mode stays the default for captures without an identity.

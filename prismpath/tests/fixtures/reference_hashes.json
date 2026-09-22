@@ -127,6 +127,12 @@
    "note": "frozen Facet corpus, byte for byte",
    "product_path": "prismpath/telemetry/conformance/decisions.json"
   },
+  "prismpath/telemetry/conformance/inputs.json": {
+   "adopted_sha256": "a005dce0707689f825627d69c12bb7a7442385d9cf2bf022f9c492e450f20141",
+   "byte_identical": true,
+   "note": "the Facet input contract corpus, authored in the product 2026-09-22 and proposed to research with identical bytes",
+   "product_path": "prismpath/telemetry/conformance/inputs.json"
+  },
   "prismpath/telemetry/conformance/receipts.json": {
    "adopted_sha256": "78181a5873ed88e5cd17ccae216641a09f9ec3bd79fcc3562fc4de452c539974",
    "byte_identical": true,

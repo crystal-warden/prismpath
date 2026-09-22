@@ -40,6 +40,7 @@ REQUIRED_IN_WHEEL = [
     "prismpath/portable/conformance/flows.json",
     "prismpath/portable/conformance/predicates.json",
     "prismpath/telemetry/conformance/decisions.json",
+    "prismpath/telemetry/conformance/inputs.json",
     "prismpath/tests/fixtures/compiler/SHA256SUMS",
     "prismpath/tests/fixtures/compiler/anchored/incident_severity.ppt",
     "prismpath/tests/fixtures/reference_hashes.json",

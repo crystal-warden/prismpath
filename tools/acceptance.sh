@@ -128,6 +128,9 @@ PY
       grep -Eq '^\([0-9]+(, [0-9]+)*\)$' facet.out
       if \$V/prismpath compile incident_severity.md --tier p0 2> compile.err; then echo 'compile must fail'; exit 1; fi
       grep -q 'not available in this distribution' compile.err
+      printf '{\"data_at_risk\": false, \"user_facing\": true, \"error_rate\": 7}\n{\"data_at_risk\": true, \"user_facing\": false, \"error_rate\": 0}\n{\"data_at_risk\": false, \"user_facing\": false, \"error_rate\": 0}\n' > sample.ndjson
+      \$V/python -m prismpath.telemetry.preflight incident_severity.md sample.ndjson --json preflight.json > preflight.out
+      \$V/python -c 'import json; r = json.load(open(\"preflight.json\")); assert r[\"events\"] == 3, r; print(\"preflight\", r[\"events\"], \"events\")'
       echo 'base smoke ok'"
     run_gate "python base: installed package test (base extras only)" "$OUT/base-tests.log" bash -c "cd '$OUT' && '$OUT/venv-base/bin/pip' -q install pytest && PATH='$OUT/venv-base/bin':\$PATH PRISMPATH_ACCEPTANCE_INSTALLED=1 '$OUT/venv-base/bin/python' -m pytest --pyargs prismpath.tests.test_installed_package prismpath.tests.test_cli_without_js_engine prismpath.tests.test_compatibility_hashes prismpath.tests.test_compiler_parity -q -p no:cacheprovider"
     # -------------------------------------------------------------- full install: extras, the shipped suites against the installed package

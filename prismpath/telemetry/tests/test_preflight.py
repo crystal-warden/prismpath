@@ -90,16 +90,20 @@ def test_unconvertible_numeric_is_reported_not_crashed(tmp_path):
 
 
 def test_float_truncation_counted_and_null_is_missing(tmp_path):
+    # The permissive encoder still truncates 49.9 to 49 and the report counts it, but the input
+    # contract rejects a fraction, so the sample is not READY: the checked encoder would refuse it.
     flow, sample = _setup(tmp_path, [
-        {"temp": 49.9, "armed": True},                # truncates to 49 -> ok, counted
+        {"temp": 49.9, "armed": True},                # truncates to 49 for the permissive path, rejected by the contract
         {"temp": None, "armed": True}])               # JSON null = missing, as in the codec
     out = tmp_path / "report.json"
     result = _run(flow, sample, "--on-missing", "skip", "--json", str(out))
-    assert result.returncode == 0
+    assert result.returncode == 1
     report = json.loads(out.read_text())
     assert report["float_truncated_by_field"] == {"temp": 1}
+    assert report["rejected_by_contract"] == {"temp": {"fractional": 1}}
     assert report["missing_by_field"] == {"temp": 1}
     assert report["route_distribution"]["classify"] == {"ok": 1}
+    assert report["ready"] is False
 
 
 def test_walk_path_mirrors_codec_lookup():
