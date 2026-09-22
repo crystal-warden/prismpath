@@ -16,7 +16,7 @@ adopted material; DIVERGENCES.md lists the intentional differences.
 
 | Rule | Purpose | Owner | Paths | Adopted from | Adopted revisions |
 |---|---|---|---|---|---|
-| python-engine | engine | research | 299 (299 adopted) | `prismpath/` | 40a9b05b3523 |
+| python-engine | engine | research | 302 (299 adopted) | `prismpath/` | 40a9b05b3523 |
 | compiler | engine | research | 1 (1 adopted) | `prismpath-hw/ppt_compile.py` | 40a9b05b3523 |
 | canary-verifier | facet | research | 1 (1 adopted) | `integrations/vector/canary_verify.py` | 40a9b05b3523 |
 | flow-fixtures | fixtures | research | 1 (1 adopted) | `prismpath/tests/test_portable_conformance.py` | 40a9b05b3523 |
@@ -24,11 +24,11 @@ adopted material; DIVERGENCES.md lists the intentional differences.
 | authored-fixtures | fixtures | product | 26 (24 adopted) | product authored | 40a9b05b3523 |
 | product-tests | tests | product | 102 (97 adopted) | product authored | 40a9b05b3523 |
 | crate-kernel | engine | research | 21 (21 adopted) | `prismpath-rs/` | 40a9b05b3523 |
-| crate-telemetry | facet | research | 28 (28 adopted) | `prismpath-telemetry-rs/` | 40a9b05b3523 |
+| crate-telemetry | facet | research | 29 (28 adopted) | `prismpath-telemetry-rs/` | 40a9b05b3523 |
 | crate-hotswap | engine | research | 5 (5 adopted) | `prismpath-hotswap-rs/` | 40a9b05b3523 |
 | crate-preflight | facet | research | 5 (5 adopted) | `prismpath-preflight/` | 40a9b05b3523 |
 | crate-fixtures | fixtures | product | 11 (11 adopted) | product authored | 40a9b05b3523 |
-| crate-fixtures-telemetry | fixtures | product | 4 (4 adopted) | product authored | 40a9b05b3523 |
+| crate-fixtures-telemetry | fixtures | product | 5 (4 adopted) | product authored | 40a9b05b3523 |
 | crate-fixtures-hotswap | fixtures | product | 1 (1 adopted) | product authored | 40a9b05b3523 |
 | cargo-workspace | packaging | research | 2 (2 adopted) | `Cargo.` | 40a9b05b3523 |
 | docs | docs | research | 21 (20 adopted) | `docs/` | 40a9b05b3523 |
@@ -115,6 +115,7 @@ Compiler reference manifest `prismpath/tests/fixtures/compiler/SHA256SUMS`: `2b7
 | `prismpath/portable/conformance/safety.json` | `c1a5c7e5bbe3ada30a275d9c803572497bf9c8f2a0f240a0e8aea208ef6febe1` | `prismpath/portable/conformance/safety.json` |
 | `prismpath/telemetry/conformance/boundary.json` | `47de3f16d1593a3607f7be642bd1878ec6d39f4e44f3dfc0f9e87220b144c209` | `prismpath/telemetry/conformance/boundary.json` |
 | `prismpath/telemetry/conformance/decisions.json` | `6b68a08de7f57cdd11bee07bd256587094dc353b959d1195473c6880472479c8` | `prismpath/telemetry/conformance/decisions.json` |
+| `prismpath/telemetry/conformance/inputs.json` | `a005dce0707689f825627d69c12bb7a7442385d9cf2bf022f9c492e450f20141` | `prismpath/telemetry/conformance/inputs.json` |
 | `prismpath/telemetry/conformance/receipts.json` | `78181a5873ed88e5cd17ccae216641a09f9ec3bd79fcc3562fc4de452c539974` | `prismpath/telemetry/conformance/receipts.json` |
 | `prismpath/telemetry/conformance/spiral.json` | `050b031bf5c55cbf0fbd88a562ad80a58446b1466a10d1126fc974bb9a0dc444` | `prismpath/telemetry/conformance/spiral.json` |
 
@@ -128,4 +129,4 @@ sha256 over one line per tracked file, `<mode> <sha256> <path>` plus newline, so
 path, mode from the git index, sha256 over the exact bytes; `PROVENANCE.md` and `SHA256SUMS` excluded.
 A comparison aid, not a signature.
 
-`d30b449f15f97807de6153096ed655177f5f97723de49c9b2bf903c965ff4d3d` over 601 files.
+`0d3e8cbf6f13b0c20715a5439b71b3b5f5f89db9ce73904f327d319a70729e4f` over 606 files.
