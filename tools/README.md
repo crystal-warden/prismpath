@@ -15,7 +15,7 @@ pushes, none merges, none publishes.
 | `fixture_sync.py` | each crate's `tests/fixtures` corpora byte identical to the product corpora |
 | `compare_upstream.py` | on request only: what changed in research since the adopted revision, per rule, and which product copies were edited; a report, never a build step |
 | `promote.py` | a three way integration of one research revision into the product; stages the result for `git diff --cached`, stops on conflicts, never commits |
-| `acceptance.sh` | the acceptance gates, run from an exported copy of the tree outside any checkout; `--leg full`, `python`, or `rust`; refuses any other leg and fails when a defined gate recorded no status |
+| `acceptance.sh` | the acceptance gates, run from an exported copy of the tree outside any checkout; `--leg full`, `python`, or `rust`; refuses any other leg and fails when a defined gate recorded no status; the extracted crates are tested together, patched to one another, never alone against the registry |
 | `release_policy.md` | a PrismPath flow, every edge deterministic, that decides release eligibility over the acceptance facts: eligible, refused, or missing evidence |
 | `release_eligibility.py` | runs the flow over an acceptance output directory and writes `release_receipt.json`, bound to the revision, the artifact hashes, the policy flow and image hashes and the report hashes, appended to a Merkle committed `release_receipts.log`; advisory during adoption, the script's exit status decides |
 | `tests/` | the repository maintenance suite for the tools above; needs the source tree |

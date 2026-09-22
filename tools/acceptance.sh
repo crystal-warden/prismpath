@@ -259,8 +259,11 @@ if [ "$LEG" = "full" ] || [ "$LEG" = "rust" ]; then
     run_gate "rust: workspace tests" "$OUT/cargo-test.log" bash -c "cd '$EXPORT' && cargo test --workspace -q"
     run_gate "rust: clippy, warnings denied" "$OUT/clippy.log" bash -c "cd '$EXPORT' && cargo clippy --workspace --all-targets -q -- -D warnings"
     for crate in prismpath-rs prismpath-telemetry-rs prismpath-hotswap-rs prismpath-preflight; do
-      run_gate "rust: cargo package $crate" "$OUT/package-$crate.log" bash -c "cd '$EXPORT/$crate' && cargo package -q --allow-dirty --no-verify --list > '$OUT/package-$crate.list' && cargo package -q --allow-dirty --no-verify"
-      run_gate "rust: extracted package tests $crate" "$OUT/extracted-$crate.log" bash -c "rm -rf '$OUT/extracted-$crate' && mkdir '$OUT/extracted-$crate' && tar -xzf '$OUT'/cargo-target/package/$crate-*.crate -C '$OUT/extracted-$crate' && cd '$OUT'/extracted-$crate/$crate-* && cargo test -q --offline 2>/dev/null || cargo test -q"
+      run_gate "rust: cargo package $crate" "$OUT/package-$crate.log" bash -c "cd '$EXPORT/$crate' && cargo package -q --allow-dirty --no-verify --list > '$OUT/package-$crate.list' && cargo package -q --allow-dirty --no-verify && grep -q 'tests/' '$OUT/package-$crate.list'"
+      # The package is extracted for the candidate gate below. Testing it alone would resolve its
+      # sibling crates from the registry, whose published API can lag the candidate, so the only
+      # extracted test that means anything runs the four candidates together, patched to each other.
+      run_gate "rust: extract package $crate" "$OUT/extracted-$crate.log" bash -c "rm -rf '$OUT/extracted-$crate' && mkdir '$OUT/extracted-$crate' && tar -xzf '$OUT'/cargo-target/package/$crate-*.crate -C '$OUT/extracted-$crate' && ls '$OUT'/extracted-$crate/$crate-*/tests > /dev/null"
     done
     run_gate "rust: extracted candidates resolve one another, not the registry" "$OUT/candidates.log" "$PYTHON" - "$OUT" <<'PY'
 import json, shutil, subprocess, sys
@@ -296,6 +299,15 @@ for node in meta["resolve"]["nodes"]:
                 problems.append(f"{package['name']} resolved {dependency['name']} {dependency['version']} from {source}, not the candidate at {expected}")
             else:
                 print(f"{package['name']} -> {dependency['name']} {dependency['version']} from the extracted candidate")
+    # The requirement floor each crate declares for a sibling, against the candidate's version: a floor
+    # below the candidate means a registry consumer could resolve an older sibling whose API lags. This
+    # is reported for the publication decision, where versions are set; it does not fail preparation.
+    for declared in package["dependencies"]:
+        if declared["name"] in crates:
+            floor = declared["req"]
+            candidate_version = by_id[next(identifier for identifier in by_id if by_id[identifier]["name"] == declared["name"] and by_id[identifier]["manifest_path"].startswith(str(candidates)))]["version"]
+            note = "matches" if floor.lstrip("^=") == candidate_version else "BELOW the candidate; set the floor to the candidate's version when publishing"
+            print(f"publication note: {package['name']} requires {declared['name']} {floor}; candidate is {candidate_version}: {note}")
 if problems:
     print("\n".join(problems)); sys.exit(1)
 completed = subprocess.run(["cargo", "test", "--workspace", "-q"], cwd=candidates, env=env, capture_output=True, text=True)
@@ -316,7 +328,7 @@ fi
 # A leg passes only when every gate it is defined to run has recorded a status. A gate that never
 # ran leaves no row, and a report with missing rows is a failure, not a pass by omission.
 PYTHON_GATES=("build wheel and sdist" "build again for reproducibility" "reproducible wheel and sdist" "package boundary (wheel and sdist)" "python base: fresh venv install of the wheel" "python base: CLI, import and runtime asset smoke" "python base: installed package test (base extras only)" "python full: install with signing, control-plane, test extras" "python full: runtime suite against the installed package" "python full: skip budget" "python full: fuzz the predicate sandbox" "canary verifier from the installed module" "signed pack from the installed wheel: keygen, envelope, compile, pack, verify" "mission control: installed launch, defaults, assets, validate, facet, pack verify, sprint subprocess" "source archive: unpack, rebuild, install, promised tests present" "documentation: examples and quickstart commands")
-RUST_GATES=("rust: workspace tests" "rust: clippy, warnings denied" "rust: cargo package prismpath-rs" "rust: extracted package tests prismpath-rs" "rust: cargo package prismpath-telemetry-rs" "rust: extracted package tests prismpath-telemetry-rs" "rust: cargo package prismpath-hotswap-rs" "rust: extracted package tests prismpath-hotswap-rs" "rust: cargo package prismpath-preflight" "rust: extracted package tests prismpath-preflight" "rust: extracted candidates resolve one another, not the registry")
+RUST_GATES=("rust: workspace tests" "rust: clippy, warnings denied" "rust: cargo package prismpath-rs" "rust: extract package prismpath-rs" "rust: cargo package prismpath-telemetry-rs" "rust: extract package prismpath-telemetry-rs" "rust: cargo package prismpath-hotswap-rs" "rust: extract package prismpath-hotswap-rs" "rust: cargo package prismpath-preflight" "rust: extract package prismpath-preflight" "rust: extracted candidates resolve one another, not the registry")
 FULL_GATES=("inventory and boundary: repository" "compatibility" "product maintenance suite" "cross language tests" "provenance check")
 EXPECTED=("export tracked tree")
 case "$LEG" in
