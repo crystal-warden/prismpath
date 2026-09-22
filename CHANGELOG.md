@@ -35,6 +35,11 @@ changelog as adopted at that commit; the entries here are the product's own.
 - **The audit log persists before it commits.** `AuditLog.append` writes, flushes and fsyncs the event
   before adding its leaf, raises `AuditWriteError` with the log unchanged when the file refuses it, and
   `verify_persisted` answers the persistence question `verify_log` never did.
+- **Telemetry retention and acknowledgment survive a restart.** `prismpath.telemetry.epoch_journal`
+  is an optional durable journal around the epoch store: a fixed write order, a fixed recovery order,
+  every interruption reported by name, disk limits that record a gap before the bytes go, and an
+  acknowledgment receiver that persists its sequence before any deletion so a replay cannot delete
+  more, before or after a restart.
 - **One input contract for Facet on both sides of the stack.** `quantizer.accept_value` and its Rust
   twin decide what a reading value is; `wire.encode_reading_checked` and `wire::encode_reading_checked`
   refuse a rejected value with the field and the reason instead of truncating, coercing or reading it
