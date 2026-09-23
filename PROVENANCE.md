@@ -6,7 +6,7 @@ regenerate it after the payload settles, never for an unresolved promotion.
 ## Adopted research revision
 
 Research: crystal-warden/prism-path, seeded at `40a9b05b3523cb4943b583b77c6fb86f93d795ee`. Every adopted path was copied byte for
-byte from the research revision recorded for it in `tools/manifest.lock`, which holds the source path,
+byte from the research revision recorded for it in `tools/inventory.lock`, which holds the source path,
 the git blob id and the adopted revision per path; a promotion may advance one component's paths and
 leave another's, so the table below lists the distinct revisions each component carries.
 Product owned paths have no source. COMPATIBILITY.md says what the product promises about the
@@ -91,7 +91,7 @@ The immutable references the compatibility check compares against, from
 revision). The product copies may be edited afterwards; their current hashes are in `SHA256SUMS`.
 
 Cause registry: `74f1b33c52f426159612c9f16e32e5f798939715fe212001b726b89ef1125ffe`.
-Compiler reference manifest `prismpath/tests/fixtures/compiler/SHA256SUMS`: `2b7c9d25fb90f54f6af9bd5300916dab398f8ba1b948bd4f120c42a753164045`.
+Compiler reference checksum list `prismpath/tests/fixtures/compiler/SHA256SUMS`: `2b7c9d25fb90f54f6af9bd5300916dab398f8ba1b948bd4f120c42a753164045`.
 
 | Research file | Adopted sha256 | Product path |
 |---|---|---|
@@ -115,7 +115,7 @@ Compiler reference manifest `prismpath/tests/fixtures/compiler/SHA256SUMS`: `2b7
 | `prismpath/portable/conformance/safety.json` | `c1a5c7e5bbe3ada30a275d9c803572497bf9c8f2a0f240a0e8aea208ef6febe1` | `prismpath/portable/conformance/safety.json` |
 | `prismpath/telemetry/conformance/boundary.json` | `47de3f16d1593a3607f7be642bd1878ec6d39f4e44f3dfc0f9e87220b144c209` | `prismpath/telemetry/conformance/boundary.json` |
 | `prismpath/telemetry/conformance/decisions.json` | `6b68a08de7f57cdd11bee07bd256587094dc353b959d1195473c6880472479c8` | `prismpath/telemetry/conformance/decisions.json` |
-| `prismpath/telemetry/conformance/inputs.json` | `a005dce0707689f825627d69c12bb7a7442385d9cf2bf022f9c492e450f20141` | `prismpath/telemetry/conformance/inputs.json` |
+| `prismpath/telemetry/conformance/inputs.json` | `0ea417177b0418ac9ea79823841c5124851bb29b33ebd1641d6a674f653837d0` | `prismpath/telemetry/conformance/inputs.json` |
 | `prismpath/telemetry/conformance/receipts.json` | `78181a5873ed88e5cd17ccae216641a09f9ec3bd79fcc3562fc4de452c539974` | `prismpath/telemetry/conformance/receipts.json` |
 | `prismpath/telemetry/conformance/spiral.json` | `050b031bf5c55cbf0fbd88a562ad80a58446b1466a10d1126fc974bb9a0dc444` | `prismpath/telemetry/conformance/spiral.json` |
 
@@ -129,4 +129,4 @@ sha256 over one line per tracked file, `<mode> <sha256> <path>` plus newline, so
 path, mode from the git index, sha256 over the exact bytes; `PROVENANCE.md` and `SHA256SUMS` excluded.
 A comparison aid, not a signature.
 
-`b1e64ff97e34e5ccd94b0120d739a24aec10881a91c881f40e4d509cffcaa72f` over 608 files.
+`47f7ad546c4e3d586d0a4e1e72887e4fd75a2812a26f25e255157a85ec41d241` over 608 files.
