@@ -111,7 +111,7 @@ def render_provenance(repo_root: Path, lines: list[tuple[str, str, str]]) -> str
             "`prismpath/tests/fixtures/reference_hashes.json` (adopted sha256 of research files at the adopted",
             "revision). The product copies may be edited afterwards; their current hashes are in `SHA256SUMS`.", "",
             f"Cause registry: `{reference['cause_registry_sha256']}`.",
-            f"Compiler reference checksum list `{reference['compiler_references']['manifest']}`: `{reference['compiler_references']['checksum_list_sha256']}`.", "",
+            f"Compiler reference checksum list `{reference['compiler_references']['checksum_list']}`: `{reference['compiler_references']['checksum_list_sha256']}`.", "",
             "| Research file | Adopted sha256 | Product path |", "|---|---|---|"]
     for path in sorted(reference["files"]):
         item = reference["files"][path]
