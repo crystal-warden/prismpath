@@ -1,5 +1,5 @@
 //! The same contract the Python reference tool's tests pin, exercised against the compiled
-//! binary, plus the input contract finding a string on a numeric field raises, which this
+//! binary, plus acceptance finding a string on a numeric field raises, which this
 //! tool must surface precisely BECAUSE the reference errors there instead.
 
 use std::path::PathBuf;
@@ -85,10 +85,10 @@ fn map_reaches_nested_fields() {
 }
 
 #[test]
-fn contract_rejection_is_surfaced_and_blocks_ready() {
-    // A string that is not an integer literal on a numeric field is refused by the input contract
+fn acceptance_refusal_is_surfaced_and_blocks_ready() {
+    // A string that is not an integer literal on a numeric field is refused by acceptance
     // and by the encoder alike, on both sides of the stack: the event is out of partition for the
-    // permissive encoder and rejected by the contract, and neither lets it become a zero reading.
+    // permissive encoder and refused by the contract, and neither lets it become a zero reading.
     let (flow, sample, out) = setup("contract", &[
         r#"{"temp": 95, "armed": true}"#,
         r#"{"temp": "hot", "armed": true}"#,
@@ -98,7 +98,7 @@ fn contract_rejection_is_surfaced_and_blocks_ready() {
     let rep = report(&out);
     assert_eq!(rep["encoded"], 1);
     assert_eq!(rep["out_of_partition"]["temp"], 1);
-    assert_eq!(rep["rejected_by_contract"]["temp"]["unparseable_string"], 1);
+    assert_eq!(rep["refused_by_field"]["temp"]["unparseable_string"], 1);
     assert!(rep.get("coerced_to_zero_by_field").is_none());
     assert_eq!(rep["ready"], false);
 }
@@ -106,16 +106,16 @@ fn contract_rejection_is_surfaced_and_blocks_ready() {
 #[test]
 fn float_truncation_counted_and_null_is_missing() {
     // The permissive encoder still truncates 49.9 to 49 and the report counts it, but the input
-    // contract rejects a fraction, so the sample is not READY: the checked encoder would refuse it.
+    // contract refuses a fraction, so the sample is not READY: the checked encoder would refuse it.
     let (flow, sample, out) = setup("trunc", &[
-        r#"{"temp": 49.9, "armed": true}"#,          // truncates to 49 for the permissive path, rejected by the contract
+        r#"{"temp": 49.9, "armed": true}"#,          // truncates to 49 for the permissive path, refused by the contract
         r#"{"temp": null, "armed": true}"#]);        // JSON null = missing, as in the codec
     let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
                   "--on-missing", "skip", "--json", out.to_str().unwrap()]);
     assert_eq!(result.status.code(), Some(1));
     let rep = report(&out);
     assert_eq!(rep["float_truncated_by_field"]["temp"], 1);
-    assert_eq!(rep["rejected_by_contract"]["temp"]["fractional"], 1);
+    assert_eq!(rep["refused_by_field"]["temp"]["fractional"], 1);
     assert_eq!(rep["missing_by_field"]["temp"], 1);
     assert_eq!(rep["route_distribution"]["classify"]["ok"], 1);
     assert_eq!(rep["ready"], false);

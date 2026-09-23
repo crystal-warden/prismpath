@@ -114,23 +114,23 @@ PY
     run_gate "python base: fresh venv install of the wheel" "$OUT/base-install.log" bash -c "'$PYTHON' -m venv '$OUT/venv-base' && '$OUT/venv-base/bin/pip' -q install '$WHEEL'"
     run_gate "python base: CLI, import and runtime asset smoke" "$OUT/base-smoke.log" bash -c "
       set -e; cd '$OUT'; export PRISMPATH_ACCEPTANCE_INSTALLED=1
-      V='$OUT/venv-base/bin'
-      \$V/prismpath --help > /dev/null
-      \$V/python -c 'import prismpath; print(prismpath.__file__); assert \"site-packages\" in prismpath.__file__'
+      VENV_BIN='$OUT/venv-base/bin'
+      \$VENV_BIN/prismpath --help > /dev/null
+      \$VENV_BIN/python -c 'import prismpath; print(prismpath.__file__); assert \"site-packages\" in prismpath.__file__'
       rm -rf smoke && mkdir smoke && cd smoke
-      \$V/prismpath init --template incident_severity > /dev/null
-      \$V/prismpath validate incident_severity.md
-      \$V/prismpath test incident_severity.md
-      \$V/prismpath portable incident_severity.md
-      \$V/python -m prismpath.kernel.ppt_compile incident_severity.md -o incident_severity.ppt --json incident_severity.names.json
+      \$VENV_BIN/prismpath init --template incident_severity > /dev/null
+      \$VENV_BIN/prismpath validate incident_severity.md
+      \$VENV_BIN/prismpath test incident_severity.md
+      \$VENV_BIN/prismpath portable incident_severity.md
+      \$VENV_BIN/python -m prismpath.kernel.ppt_compile incident_severity.md -o incident_severity.ppt --json incident_severity.names.json
       test -s incident_severity.ppt
-      \$V/prismpath facet quantize incident_severity.md '{\"data_at_risk\": false, \"user_facing\": true, \"error_rate\": 7}' > facet.out
+      \$VENV_BIN/prismpath facet quantize incident_severity.md '{\"data_at_risk\": false, \"user_facing\": true, \"error_rate\": 7}' > facet.out
       grep -Eq '^\([0-9]+(, [0-9]+)*\)$' facet.out
-      if \$V/prismpath compile incident_severity.md --tier p0 2> compile.err; then echo 'compile must fail'; exit 1; fi
+      if \$VENV_BIN/prismpath compile incident_severity.md --tier p0 2> compile.err; then echo 'compile must fail'; exit 1; fi
       grep -q 'not available in this distribution' compile.err
       printf '{\"data_at_risk\": false, \"user_facing\": true, \"error_rate\": 7}\n{\"data_at_risk\": true, \"user_facing\": false, \"error_rate\": 0}\n{\"data_at_risk\": false, \"user_facing\": false, \"error_rate\": 0}\n' > sample.ndjson
-      \$V/python -m prismpath.telemetry.preflight incident_severity.md sample.ndjson --json preflight.json > preflight.out
-      \$V/python -c 'import json; r = json.load(open(\"preflight.json\")); assert r[\"events\"] == 3, r; print(\"preflight\", r[\"events\"], \"events\")'
+      \$VENV_BIN/python -m prismpath.telemetry.preflight incident_severity.md sample.ndjson --json preflight.json > preflight.out
+      \$VENV_BIN/python -c 'import json; r = json.load(open(\"preflight.json\")); assert r[\"events\"] == 3, r; print(\"preflight\", r[\"events\"], \"events\")'
       echo 'base smoke ok'"
     run_gate "python base: installed package test (base extras only)" "$OUT/base-tests.log" bash -c "cd '$OUT' && '$OUT/venv-base/bin/pip' -q install pytest && PATH='$OUT/venv-base/bin':\$PATH PRISMPATH_ACCEPTANCE_INSTALLED=1 '$OUT/venv-base/bin/python' -m pytest --pyargs prismpath.tests.test_installed_package prismpath.tests.test_cli_without_js_engine prismpath.tests.test_compatibility_hashes prismpath.tests.test_compiler_parity -q -p no:cacheprovider"
     # -------------------------------------------------------------- full install: extras, the shipped suites against the installed package
@@ -166,13 +166,13 @@ PY
     # -------------------------------------------------------------- the signed pack, inside the project Mission Control will follow
     run_gate "signed pack from the installed wheel: keygen, envelope, compile, pack, verify" "$OUT/pack.log" bash -c "
       set -e; rm -rf '$OUT/mc-project' && mkdir -p '$OUT/mc-project/flows' && cd '$OUT/mc-project'
-      P='$OUT/venv-full/bin/prismpath'; PY='$OUT/venv-full/bin/python'
+      PRISMPATH_BIN='$OUT/venv-full/bin/prismpath'; PYTHON_BIN='$OUT/venv-full/bin/python'
       printf -- '---\nname: triage\nstart: intake\n---\n## intake\n-> escalate: when priority > 5\n-> resolve: else\n## escalate\n## resolve\n' > flows/triage.md
-      \$P swap keygen --out keys --name authority > /dev/null
-      \$P swap envelope --envelope-id env1 --fields priority:int --caps atoms=1024,nodes=256 --priv keys/authority.key --pub keys/authority.pub --out env > /dev/null
-      \$PY -m prismpath.kernel.ppt_compile flows/triage.md -o triage.ppt
-      \$P swap pack --ppt triage.ppt --fields priority:int --priv keys/authority.key --pub keys/authority.pub --version 1 > /dev/null
-      \$P swap verify --ppt triage.ppt --pub keys/authority.pub | grep -q '\"ok\": true'
+      \$PRISMPATH_BIN swap keygen --out keys --name authority > /dev/null
+      \$PRISMPATH_BIN swap envelope --envelope-id env1 --fields priority:int --caps atoms=1024,nodes=256 --priv keys/authority.key --pub keys/authority.pub --out env > /dev/null
+      \$PYTHON_BIN -m prismpath.kernel.ppt_compile flows/triage.md -o triage.ppt
+      \$PRISMPATH_BIN swap pack --ppt triage.ppt --fields priority:int --priv keys/authority.key --pub keys/authority.pub --version 1 > /dev/null
+      \$PRISMPATH_BIN swap verify --ppt triage.ppt --pub keys/authority.pub | grep -q '\"ok\": true'
       echo 'pack verified'"
     # -------------------------------------------------------------- Mission Control from the installed wheel
     run_gate "mission control: installed launch, defaults, assets, validate, facet, pack verify, sprint subprocess" "$OUT/mission-control.log" "$OUT/venv-full/bin/python" - "$OUT" <<'PY'
@@ -246,7 +246,7 @@ PY
     # -------------------------------------------------------------- source archive
     run_gate "source archive: unpack, rebuild, install, promised tests present" "$OUT/sdist.log" bash -c "rm -rf '$OUT/sdist-work' && mkdir '$OUT/sdist-work' && tar -xzf '$SDIST' -C '$OUT/sdist-work' && cd '$OUT'/sdist-work/prismpath-* && test -f prismpath/tests/test_causes.py && test -f prismpath/tests/fixtures/compiler/SHA256SUMS && test -f COMPATIBILITY.md && '$OUT/venv-build/bin/python' -m build --outdir '$OUT/dist-from-sdist' . && '$PYTHON' -m venv '$OUT/venv-sdist' && '$OUT/venv-sdist/bin/pip' -q install '$OUT'/dist-from-sdist/*.whl pytest && cd '$OUT' && PATH='$OUT/venv-sdist/bin':\$PATH PRISMPATH_ACCEPTANCE_INSTALLED=1 '$OUT/venv-sdist/bin/python' -m pytest --pyargs prismpath.tests.test_compatibility_hashes prismpath.tests.test_installed_package -q -p no:cacheprovider"
     # -------------------------------------------------------------- examples and quickstart
-    run_gate "documentation: examples and quickstart commands" "$OUT/examples.log" bash -c "cd '$EXPORT' && export PATH='$OUT/venv-full/bin':\$PATH && P='$OUT/venv-full/bin/prismpath' && \$P validate prismpath/examples/pr_demo/triage.md && \$P test prismpath/examples/pr_demo/triage.md && \$P validate prismpath/examples/operator_overlay/overlay.md && \$P test prismpath/examples/operator_overlay/overlay.md && \$P validate prismpath/examples/governed_worker/governed_worker.md && \$P validate prismpath/examples/code_nodes/pipeline.md && \$P validate prismpath/examples/cli_worker/ci_gate.md && \$P graph prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P contract prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P capability prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$P verify prismpath/gallery/incident_severity/incident_severity.md > /dev/null && bash prismpath/examples/pr_demo/demo.sh > /dev/null"
+    run_gate "documentation: examples and quickstart commands" "$OUT/examples.log" bash -c "cd '$EXPORT' && export PATH='$OUT/venv-full/bin':\$PATH && PRISMPATH_BIN='$OUT/venv-full/bin/prismpath' && \$PRISMPATH_BIN validate prismpath/examples/pr_demo/triage.md && \$PRISMPATH_BIN test prismpath/examples/pr_demo/triage.md && \$PRISMPATH_BIN validate prismpath/examples/operator_overlay/overlay.md && \$PRISMPATH_BIN test prismpath/examples/operator_overlay/overlay.md && \$PRISMPATH_BIN validate prismpath/examples/governed_worker/governed_worker.md && \$PRISMPATH_BIN validate prismpath/examples/code_nodes/pipeline.md && \$PRISMPATH_BIN validate prismpath/examples/cli_worker/ci_gate.md && \$PRISMPATH_BIN graph prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$PRISMPATH_BIN contract prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$PRISMPATH_BIN capability prismpath/gallery/incident_severity/incident_severity.md > /dev/null && \$PRISMPATH_BIN verify prismpath/gallery/incident_severity/incident_severity.md > /dev/null && bash prismpath/examples/pr_demo/demo.sh > /dev/null"
   else
     record "wheel built" FAIL "no wheel in $OUT/dist"
   fi
@@ -341,7 +341,7 @@ for gate in "${EXPECTED[@]}"; do
 done
 
 # PrismPath judging its own release eligibility over the facts above (tools/release_policy.md). The
-# verdict is advisory: it can add a failure to this report, never remove one, and the exit status of
+# decision is advisory: it can add a failure to this report, never remove one, and the exit status of
 # this script stays the authority, so a defect in the engine cannot certify the engine.
 if [ "$LEG" = "full" ] && [ -x "$OUT/venv-full/bin/python" ]; then
   if (cd "$EXPORT" && "$OUT/venv-full/bin/python" -m tools.release_eligibility --out "$OUT" --revision "$COMMIT" > "$OUT/release-eligibility.log" 2>&1); then

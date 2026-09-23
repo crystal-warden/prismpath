@@ -40,11 +40,11 @@ changelog as adopted at that commit; the entries here are the product's own.
   every interruption reported by name, disk limits that record a gap before the bytes go, and an
   acknowledgment receiver that persists its sequence before any deletion so a replay cannot delete
   more, before or after a restart.
-- **One input contract for Facet on both sides of the stack.** `quantizer.accept_value` and its Rust
+- **One set of acceptance rules for Facet on both sides of the stack.** `quantizer.accept_value` and its Rust
   twin decide what a reading value is; `wire.encode_reading_checked` and `wire::encode_reading_checked`
-  refuse a rejected value with the field and the reason instead of truncating, coercing or reading it
-  as zero; both preflight tools report `rejected_by_contract` per field and withhold READY on any
-  rejection; `conformance/inputs.json` pins it in both languages. The Rust permissive path no longer
+  refuse a value with the field and the reason instead of truncating, coercing or reading it
+  as zero; both preflight tools report `refused_by_field` per field and withhold READY on any
+  refusal; `conformance/inputs.json` pins it in both languages. The Rust permissive path no longer
   reads a string that is not an integer literal as zero, which the Python reference never did; the
   Rust preflight's `coerced_to_zero_by_field` key is gone with the coercion.
 - **The canary verifier has a strict mode.** `--id-field` correlates event identity and sequence between

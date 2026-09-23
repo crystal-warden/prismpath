@@ -42,7 +42,7 @@ def test_cause_registry_hash_is_the_adopted_one():
 
 def test_compiler_reference_manifest_is_frozen():
     manifest = PACKAGE / "tests" / "fixtures" / "compiler" / "SHA256SUMS"
-    assert _sha256(manifest) == REFERENCE["compiler_references"]["manifest_sha256"]
+    assert _sha256(manifest) == REFERENCE["compiler_references"]["checksum_list_sha256"]
     for line in manifest.read_text(encoding="utf-8").splitlines():
         digest, name = line.split("  ", 1)
         assert _sha256(manifest.parent / name) == digest, f"{name} differs from the frozen manifest"

@@ -61,7 +61,7 @@ def test_compare_upstream_classifications(tmp_path: Path) -> None:
     (product_directory / "tools").mkdir(parents=True, exist_ok=True)
     (product_directory / "prismpath").mkdir(parents=True, exist_ok=True)
 
-    manifest_content = (
+    inventory_content = (
         "[meta]\n"
         f"adopted_revision = \"{adopted_revision}\"\n\n"
         "[[rule]]\n"
@@ -73,7 +73,7 @@ def test_compare_upstream_classifications(tmp_path: Path) -> None:
         "source_prefix = \"prismpath/\"\n"
         "reason = \"the python engine\"\n"
     )
-    (product_directory / "tools" / "manifest.toml").write_text(manifest_content, encoding="utf-8")
+    (product_directory / "tools" / "inventory.toml").write_text(inventory_content, encoding="utf-8")
 
     lock_content = (
         "path\trule\tsource_path\tsource_blob\tadopted_revision\n"
@@ -82,7 +82,7 @@ def test_compare_upstream_classifications(tmp_path: Path) -> None:
         f"prismpath/deleted.py\tengine\tprismpath/deleted.py\t{deleted_blob}\t{adopted_revision}\n"
         f"prismpath/product_edited.py\tengine\tprismpath/product_edited.py\t{product_edited_blob}\t{adopted_revision}\n"
     )
-    (product_directory / "tools" / "manifest.lock").write_text(lock_content, encoding="utf-8")
+    (product_directory / "tools" / "inventory.lock").write_text(lock_content, encoding="utf-8")
 
     (product_directory / "prismpath" / "unchanged.py").write_text("print('unchanged')", encoding="utf-8")
     (product_directory / "prismpath" / "changed.py").write_text("print('original')", encoding="utf-8")

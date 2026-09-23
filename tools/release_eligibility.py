@@ -8,12 +8,12 @@ outcome, and lets the flow in tools/release_policy.md decide: eligible, refused,
 Every edge of the flow is deterministic, so the same policy compiles to a table image, and the image
 hash in the receipt is the policy's identity.
 
-The receipt binds the verdict to what it judged: the source revision, the sha256 of each artifact,
+The receipt binds the decision to what it judged: the source revision, the sha256 of each artifact,
 the sha256 of the policy flow and of its compiled image, the sha256 of each report the facts came
 from, the facts themselves and the path the flow took. It is appended to a Merkle committed audit
 log beside the report, so a receipt cannot be altered after the fact without the root changing.
 
-The shell script's exit status stays authoritative during adoption. This verdict is advisory and is
+The shell script's exit status stays authoritative during adoption. This decision is advisory and is
 recorded beside it; a defect in the engine cannot certify the engine.
 
     python -m tools.release_eligibility --out <acceptance output dir> --revision <commit> [--leg full]
@@ -85,7 +85,7 @@ def facts_from(report: Path) -> dict:
 
 
 def decide(facts: dict) -> tuple[str, list[str]]:
-    """Run the policy flow once over the facts; the terminal node is the verdict."""
+    """Run the policy flow once over the facts; the terminal node is the decision."""
     graph = parse_file(str(POLICY))
     result = run(graph, lambda node, instruction, state: dict(facts, text="facts read"), max_steps=5)
     if result.stopped != "terminal":
@@ -118,17 +118,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"release eligibility: no report at {report}", file=sys.stderr)
         return 2
     facts = facts_from(report)
-    verdict, path = decide(facts)
+    decision, path = decide(facts)
     reports = {name: sha256_of(out / name) for name in ("report.md", "skips.log") if (out / name).exists()}
-    receipt = {"verdict": verdict, "path": path, "facts": facts, "source_revision": args.revision,
+    receipt = {"decision": decision, "path": path, "facts": facts, "source_revision": args.revision,
                "artifacts": artifacts_in(out), "policy": policy_identity(), "reports": reports,
                "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "authority": "advisory; the acceptance exit status decides"}
     (out / "release_receipt.json").write_text(json.dumps(receipt, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     log = AuditLog(str(out / "release_receipts.log"))
     event = log.append("release_policy", "release_eligibility", receipt)
-    print(f"release eligibility: {verdict} (path {' -> '.join(path)}); policy image {receipt['policy']['image_sha256'][:12]}; "
+    print(f"release eligibility: {decision} (path {' -> '.join(path)}); policy image {receipt['policy']['image_sha256'][:12]}; "
           f"receipt leaf {event['idx']} root {log.current_root()[:12]}")
-    return 0 if verdict == "eligible" else 1
+    return 0 if decision == "eligible" else 1
 
 
 if __name__ == "__main__":

@@ -1,23 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Crystal Warden Supply Chain Labs LLC
-"""The manifest and its lock: what may be in the product, and what is.
+"""The inventory and its lock: what may be in the product, and what is.
 
-tools/manifest.toml holds the rules. A rule is `ship` or `hold`, has a purpose, an owner (`research`
+tools/inventory.toml holds the rules. A rule is `ship` or `hold`, has a purpose, an owner (`research`
 for adopted copies, `product` for product authored files), and matches either one exact `path` or
 every path under a `prefix`. A hold rule names a research area that must never enter the product.
 
-tools/manifest.lock enumerates every classified product path with the rule that classified it, the
+tools/inventory.lock enumerates every classified product path with the rule that classified it, the
 research source path it was adopted from, that source's git blob id, and the research revision the
 path was last adopted from (all three empty for product authored files). The revision is per path
 because a promotion may take one component and leave another, so no single revision describes the
-tree; [meta] adopted_revision in the manifest is the seed revision. The lock, not the rules, is the review gate: a tracked path that
+tree; [meta] adopted_revision in the inventory is the seed revision. The lock, not the rules, is the review gate: a tracked path that
 is absent from the lock is unclassified even when a rule matches it, so a new file is always seen and
 acknowledged in a reviewed lock update before it counts as classified. That is why a broad hold or
 ship prefix cannot absorb a new file silently.
 
-    python -m tools.product_manifest check          # every tracked path classified and locked
-    python -m tools.product_manifest unclassified   # list what a lock update would have to add
-    python -m tools.product_manifest update-lock    # add unclassified paths under their matching rule
+    python -m tools.product_inventory check          # every tracked path classified and locked
+    python -m tools.product_inventory unclassified   # list what a lock update would have to add
+    python -m tools.product_inventory update-lock    # add unclassified paths under their matching rule
 """
 from __future__ import annotations
 
@@ -30,8 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MANIFEST_PATH = REPO_ROOT / "tools" / "manifest.toml"
-LOCK_PATH = REPO_ROOT / "tools" / "manifest.lock"
+INVENTORY_PATH = REPO_ROOT / "tools" / "inventory.toml"
+LOCK_PATH = REPO_ROOT / "tools" / "inventory.lock"
 LOCK_FIELDS = ("path", "rule", "source_path", "source_blob", "adopted_revision")
 
 
@@ -52,7 +52,7 @@ class Rule:
         return repo_path.startswith(self.prefix or "\0")
 
 
-def load_rules(manifest_path: Path = MANIFEST_PATH) -> list[Rule]:
+def load_rules(manifest_path: Path = INVENTORY_PATH) -> list[Rule]:
     document = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
     rules = []
     for entry in document.get("rule", []):
@@ -64,11 +64,11 @@ def load_rules(manifest_path: Path = MANIFEST_PATH) -> list[Rule]:
                           entry.get("path"), entry.get("prefix"), entry.get("source_prefix"), entry.get("reason", "")))
     identifiers = [rule.identifier for rule in rules]
     if len(identifiers) != len(set(identifiers)):
-        raise ValueError("duplicate rule id in the manifest")
+        raise ValueError("duplicate rule id in the inventory")
     return rules
 
 
-def adopted_revision(manifest_path: Path = MANIFEST_PATH) -> str:
+def adopted_revision(manifest_path: Path = INVENTORY_PATH) -> str:
     return tomllib.loads(manifest_path.read_text(encoding="utf-8"))["meta"]["adopted_revision"]
 
 
@@ -122,7 +122,7 @@ def unclassified(paths: list[str], rules: list[Rule], lock: dict[str, dict[str, 
         elif repo_path not in lock:
             findings.append((repo_path, f"matches ship rule {rule.identifier} but is not in the lock"))
         elif lock[repo_path]["rule"] != rule.identifier:
-            findings.append((repo_path, f"locked under {lock[repo_path]['rule']} but the manifest says {rule.identifier}"))
+            findings.append((repo_path, f"locked under {lock[repo_path]['rule']} but the inventory says {rule.identifier}"))
     return findings
 
 
@@ -137,8 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", default=str(REPO_ROOT), help="the product checkout (default: this one)")
     args = parser.parse_args(argv)
     repo_root = Path(args.repo).resolve()
-    rules = load_rules(repo_root / "tools" / "manifest.toml")
-    lock_path = repo_root / "tools" / "manifest.lock"
+    rules = load_rules(repo_root / "tools" / "inventory.toml")
+    lock_path = repo_root / "tools" / "inventory.lock"
     lock = load_lock(lock_path)
     paths = tracked_paths(repo_root)
     findings = unclassified(paths, rules, lock)

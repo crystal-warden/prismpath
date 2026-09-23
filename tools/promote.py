@@ -39,9 +39,9 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tools import product_manifest
+from tools import product_inventory
 
-REPO_ROOT = product_manifest.REPO_ROOT
+REPO_ROOT = product_inventory.REPO_ROOT
 
 
 @dataclass
@@ -103,7 +103,7 @@ def merge_three_ways(base: bytes, ours: bytes, theirs: bytes, label: str) -> byt
         return completed.stdout
 
 
-def source_additions(research: Path, revision: str, rules: list[product_manifest.Rule],
+def source_additions(research: Path, revision: str, rules: list[product_inventory.Rule],
                      lock: dict[str, dict[str, str]], selected: set[str] | None) -> list[Decision]:
     traced = {entry["source_path"] for entry in lock.values() if entry["source_path"]}
     additions = []
@@ -119,19 +119,19 @@ def source_additions(research: Path, revision: str, rules: list[product_manifest
             if source_path in traced:
                 continue
             product_path = rule.prefix + source_path[len(rule.source_prefix):]
-            holding = product_manifest.classify(product_path, rules)
+            holding = product_inventory.classify(product_path, rules)
             # A held destination is not an addition, a product owned area takes nothing from research
             # by path, and a path already in the lock without a source is product authored on purpose.
             if holding is None or holding.kind == "hold" or holding.owner == "product" or product_path in lock:
                 continue
             additions.append(Decision(product_path, source_path, "addition",
-                                      f"new under {rule.identifier}; add to tools/manifest.lock to promote"))
+                                      f"new under {rule.identifier}; add to tools/inventory.lock to promote"))
     return additions
 
 
 def build_plan(product: Path, research: Path, revision: str, selected: set[str] | None) -> Plan:
-    rules = product_manifest.load_rules(product / "tools" / "manifest.toml")
-    lock = product_manifest.load_lock(product / "tools" / "manifest.lock")
+    rules = product_inventory.load_rules(product / "tools" / "inventory.toml")
+    lock = product_inventory.load_lock(product / "tools" / "inventory.lock")
     plan = Plan()
     for entry in sorted(lock.values(), key=lambda item: item["path"]):
         if not entry["source_path"]:
@@ -184,7 +184,7 @@ def current_branch(product: Path) -> str:
 
 
 def apply_plan(product: Path, plan: Plan, update_lock: bool, revision: str) -> None:
-    lock = product_manifest.load_lock(product / "tools" / "manifest.lock")
+    lock = product_inventory.load_lock(product / "tools" / "inventory.lock")
     for decision in plan.decisions:
         if decision.kind in ("update", "merge"):
             target = product / decision.product_path
@@ -199,8 +199,8 @@ def apply_plan(product: Path, plan: Plan, update_lock: bool, revision: str) -> N
             if update_lock:
                 del lock[decision.product_path]
     if update_lock:
-        product_manifest.write_lock(lock, product / "tools" / "manifest.lock")
-        git(product, "add", "--", "tools/manifest.lock")
+        product_inventory.write_lock(lock, product / "tools" / "inventory.lock")
+        git(product, "add", "--", "tools/inventory.lock")
 
 
 def report(plan: Plan) -> str:
@@ -218,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--research", required=True, help="a local clone of the research repository")
     parser.add_argument("--revision", required=True, help="the research commit to promote from")
-    parser.add_argument("--rule", action="append", help="limit to one manifest rule id; repeatable")
+    parser.add_argument("--rule", action="append", help="limit to one inventory rule id; repeatable")
     parser.add_argument("--dry-run", action="store_true", help="compute and print the plan, write nothing")
     parser.add_argument("--update-lock", action="store_true", help="advance the lock's adopted blobs for the promoted paths")
     parser.add_argument("--repo", default=str(REPO_ROOT))

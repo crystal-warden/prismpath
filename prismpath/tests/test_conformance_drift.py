@@ -53,7 +53,7 @@ def test_classifier_compiler_gap_pinned():
     — 0 disagreements in either direction. They share one `_desugar_chains` (the compiler imports it from
     model_check) and one `_classify`, so a flow is Level M per `verify --level-m` iff it compiles to a
     table. Any gap here means the two authorities fell out of sync (e.g. a divergent desugar copy crept
-    back) — investigate, don't just re-pin. The compiler is a package module now, so this never skips."""
+    back): investigate rather than re-pin. The compiler is a package module now, so this never skips."""
     from prismpath.kernel import ppt_compile as pc
 
     classifier = {case["cond"] for case in _cases() if mc.is_level_m(case["cond"])[0]}

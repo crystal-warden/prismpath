@@ -5,7 +5,7 @@
 Repository mode (the default) checks the tracked tree:
 
 1. Every tracked path is classified by a ship rule and listed in the lock, and no tracked path matches
-   a hold rule (tools/product_manifest.py does the classification).
+   a hold rule (tools/product_inventory.py does the classification).
 2. Every relative markdown link resolves to a file in this tree.
 3. Every link into the research repository that names a file pins a commit: a `blob/<40 hex>/` or
    `tree/<40 hex>/` path, never `main`, so a claim and the file it cites stay matched. A link to the
@@ -29,9 +29,9 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-from tools import product_manifest
+from tools import product_inventory
 
-REPO_ROOT = product_manifest.REPO_ROOT
+REPO_ROOT = product_inventory.REPO_ROOT
 RESEARCH_LINK = re.compile(r"https://github\.com/crystal-warden/prism-path/(blob|tree|raw)/([^/\s)]+)/")
 MARKDOWN_LINK = re.compile(r"\]\(([^)]+)\)")
 REQUIRED_IN_WHEEL = [
@@ -84,11 +84,11 @@ def check_links(repo_root: Path, paths: list[str]) -> list[str]:
 
 
 def check_repository(repo_root: Path) -> list[str]:
-    rules = product_manifest.load_rules(repo_root / "tools" / "manifest.toml")
-    lock = product_manifest.load_lock(repo_root / "tools" / "manifest.lock")
-    paths = product_manifest.tracked_paths(repo_root)
-    problems = [f"{path}: {reason}" for path, reason in product_manifest.unclassified(paths, rules, lock)]
-    problems += [f"{path}: locked but not tracked" for path in product_manifest.stale_lock_entries(paths, lock)]
+    rules = product_inventory.load_rules(repo_root / "tools" / "inventory.toml")
+    lock = product_inventory.load_lock(repo_root / "tools" / "inventory.lock")
+    paths = product_inventory.tracked_paths(repo_root)
+    problems = [f"{path}: {reason}" for path, reason in product_inventory.unclassified(paths, rules, lock)]
+    problems += [f"{path}: locked but not tracked" for path in product_inventory.stale_lock_entries(paths, lock)]
     problems += check_links(repo_root, paths)
     return problems
 
@@ -104,12 +104,12 @@ def archive_members(artifact: Path) -> list[str]:
 
 
 def check_package(repo_root: Path, artifact: Path, required: list[str]) -> list[str]:
-    rules = product_manifest.load_rules(repo_root / "tools" / "manifest.toml")
+    rules = product_inventory.load_rules(repo_root / "tools" / "inventory.toml")
     members = archive_members(artifact)
     present = set(members)
     problems = []
     for member in members:
-        rule = product_manifest.classify(member, rules)
+        rule = product_inventory.classify(member, rules)
         if rule is not None and rule.kind == "hold":
             problems.append(f"{artifact.name}: carries held path {member} ({rule.identifier})")
     for path in required:

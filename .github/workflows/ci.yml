@@ -40,9 +40,9 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: pip install numpy pytest build
-      - name: Manifest, lock and boundary
+      - name: Inventory, lock and boundary
         run: |
-          python -m tools.product_manifest check
+          python -m tools.product_inventory check
           python -m tools.check_boundary
       - name: Compatibility with the adopted research revision
         run: python -m tools.check_compatibility

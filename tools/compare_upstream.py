@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Crystal Warden Supply Chain Labs LLC
-"""What changed in research since the product adopted it, per manifest rule; a report, never a build step.
+"""What changed in research since the product adopted it, per inventory rule; a report, never a build step.
 
 For every locked product path with a research source, the source blob at --revision is compared with
 the adopted blob in the lock, and the product copy with the adopted blob, so each path reads as
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from tools.product_manifest import REPO_ROOT, load_lock, load_rules
+from tools.product_inventory import REPO_ROOT, load_lock, load_rules
 
 
 def validate_research_repository(research_directory: Path, revision_identifier: str) -> bool:
@@ -104,8 +104,8 @@ def compare_upstream(
     rule_identifier: str | None = None,
 ) -> dict[str, Any]:
     """Compares the product manifest lock entries and rules against the research repository."""
-    manifest_path = product_repository_root / "tools" / "manifest.toml"
-    lock_path = product_repository_root / "tools" / "manifest.lock"
+    manifest_path = product_repository_root / "tools" / "inventory.toml"
+    lock_path = product_repository_root / "tools" / "inventory.lock"
 
     rules_list = load_rules(manifest_path)
     lock_entries = load_lock(lock_path)

@@ -3,7 +3,7 @@
 """The release policy over synthetic acceptance reports: a full leg with every required gate passing
 is eligible, one failed gate refuses, a missing required row is missing evidence and not a refusal,
 a single language leg refuses, the policy compiles to a table image, and the receipt binds the
-verdict to the revision, the artifacts, the policy identity and the reports."""
+decision to the revision, the artifacts, the policy identity and the reports."""
 import json
 from pathlib import Path
 
@@ -29,7 +29,7 @@ def test_full_leg_all_pass_is_eligible(tmp_path):
     _report(tmp_path, "full", {gate: "pass" for gate in ALL_PASS})
     assert release_eligibility.main(["--out", str(tmp_path), "--revision", "abc123"]) == 0
     receipt = json.loads((tmp_path / "release_receipt.json").read_text())
-    assert receipt["verdict"] == "eligible" and receipt["path"] == ["assess", "eligible"]
+    assert receipt["decision"] == "eligible" and receipt["path"] == ["assess", "eligible"]
     assert receipt["source_revision"] == "abc123"
     assert receipt["artifacts"]["prismpath-0.0.0-py3-none-any.whl"]
     assert len(receipt["policy"]["image_sha256"]) == 64 and receipt["policy"]["image_bytes"] > 0
@@ -43,7 +43,7 @@ def test_one_failed_gate_refuses(tmp_path):
     _report(tmp_path, "full", statuses)
     assert release_eligibility.main(["--out", str(tmp_path), "--revision", "abc123"]) == 1
     receipt = json.loads((tmp_path / "release_receipt.json").read_text())
-    assert receipt["verdict"] == "refused" and receipt["facts"]["compatibility_ok"] is False
+    assert receipt["decision"] == "refused" and receipt["facts"]["compatibility_ok"] is False
 
 
 def test_a_gate_that_never_ran_is_missing_evidence_not_a_refusal(tmp_path):
@@ -51,7 +51,7 @@ def test_a_gate_that_never_ran_is_missing_evidence_not_a_refusal(tmp_path):
     _report(tmp_path, "full", statuses)
     assert release_eligibility.main(["--out", str(tmp_path), "--revision", "abc123"]) == 1
     receipt = json.loads((tmp_path / "release_receipt.json").read_text())
-    assert receipt["verdict"] == "missing_evidence" and receipt["facts"]["evidence_complete"] is False
+    assert receipt["decision"] == "missing_evidence" and receipt["facts"]["evidence_complete"] is False
 
 
 def test_a_missing_gate_row_from_the_script_refuses(tmp_path):
@@ -59,16 +59,16 @@ def test_a_missing_gate_row_from_the_script_refuses(tmp_path):
     _report(tmp_path, "full", statuses, extra_rows=["| missing gate: rust: workspace tests | FAIL | never ran |"])
     assert release_eligibility.main(["--out", str(tmp_path), "--revision", "abc123"]) == 1
     receipt = json.loads((tmp_path / "release_receipt.json").read_text())
-    assert receipt["verdict"] == "refused" and receipt["facts"]["gates_missing"] == 1
+    assert receipt["decision"] == "refused" and receipt["facts"]["gates_missing"] == 1
 
 
 def test_single_language_leg_is_not_eligible(tmp_path):
     _report(tmp_path, "python", {gate: "pass" for gate in ALL_PASS})
     assert release_eligibility.main(["--out", str(tmp_path), "--revision", "abc123"]) == 1
-    assert json.loads((tmp_path / "release_receipt.json").read_text())["verdict"] == "refused"
+    assert json.loads((tmp_path / "release_receipt.json").read_text())["decision"] == "refused"
 
 
-def test_no_report_is_an_error_not_a_verdict(tmp_path):
+def test_no_report_is_an_error_not_a_decision(tmp_path):
     assert release_eligibility.main(["--out", str(tmp_path), "--revision", "abc123"]) == 2
     assert not (tmp_path / "release_receipt.json").exists()
 

@@ -11,7 +11,7 @@ Four things, all from files in this repository, no network and no research check
    product may reword a document with the meanings preserved.
 2. The cause registry hash, the same value the registry test pins.
 3. The compiler references. The frozen manifest under prismpath/tests/fixtures/compiler must hash to
-   the recorded value, every fixture must match the manifest, and compiling each source flow into a
+   the recorded value, every fixture must match the inventory, and compiling each source flow into a
    temporary file must reproduce the fixture bytes. Nothing here ever regenerates a reference.
 4. Crate fixture equality, through tools/fixture_sync.py.
 
@@ -29,9 +29,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-from tools import fixture_sync, product_manifest
+from tools import fixture_sync, product_inventory
 
-REPO_ROOT = product_manifest.REPO_ROOT
+REPO_ROOT = product_inventory.REPO_ROOT
 REFERENCE_HASHES = "prismpath/tests/fixtures/reference_hashes.json"
 COMPILER_FIXTURES = "prismpath/tests/fixtures/compiler"
 
@@ -92,8 +92,8 @@ def check_compiler_references(repo_root: Path, reference: dict) -> list[str]:
     manifest = fixture_dir / "SHA256SUMS"
     if not manifest.exists():
         return [f"{COMPILER_FIXTURES}/SHA256SUMS: missing"]
-    if sha256_of(manifest) != reference["compiler_references"]["manifest_sha256"]:
-        failures.append("the compiler reference manifest differs from the recorded hash; references are frozen, never regenerated")
+    if sha256_of(manifest) != reference["compiler_references"]["checksum_list_sha256"]:
+        failures.append("the compiler reference checksum list differs from the recorded hash; references are frozen, never regenerated")
     listed = {}
     for line in manifest.read_text(encoding="utf-8").splitlines():
         digest, name = line.split("  ", 1)

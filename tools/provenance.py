@@ -3,7 +3,7 @@
 """PROVENANCE.md and SHA256SUMS: what this tree is made of, and a way to tell whether it changed.
 
 SHA256SUMS lists the sha256 of every tracked file except itself and PROVENANCE.md, in the format
-`sha256sum -c` reads. PROVENANCE.md records the adopted research revision, every rule of the manifest
+`sha256sum -c` reads. PROVENANCE.md records the adopted research revision, every rule of the inventory
 with the paths it classifies and where they were adopted from, every relocation (a product path whose
 research source path differs), the reference hashes the compatibility check compares against, the
 executable files, and the tree digest.
@@ -27,9 +27,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools import product_manifest
+from tools import product_inventory
 
-REPO_ROOT = product_manifest.REPO_ROOT
+REPO_ROOT = product_inventory.REPO_ROOT
 SELF_PATHS = ("PROVENANCE.md", "SHA256SUMS")
 REFERENCE_HASHES = REPO_ROOT / "prismpath" / "tests" / "fixtures" / "reference_hashes.json"
 
@@ -71,9 +71,9 @@ def render_sha256sums(lines: list[tuple[str, str, str]]) -> str:
 
 
 def render_provenance(repo_root: Path, lines: list[tuple[str, str, str]]) -> str:
-    rules = product_manifest.load_rules(repo_root / "tools" / "manifest.toml")
-    lock = product_manifest.load_lock(repo_root / "tools" / "manifest.lock")
-    revision = product_manifest.adopted_revision(repo_root / "tools" / "manifest.toml")
+    rules = product_inventory.load_rules(repo_root / "tools" / "inventory.toml")
+    lock = product_inventory.load_lock(repo_root / "tools" / "inventory.lock")
+    revision = product_inventory.adopted_revision(repo_root / "tools" / "inventory.toml")
     reference = json.loads((repo_root / "prismpath" / "tests" / "fixtures" / "reference_hashes.json").read_text())
     by_rule: dict[str, list[dict[str, str]]] = {}
     for entry in lock.values():
@@ -83,7 +83,7 @@ def render_provenance(repo_root: Path, lines: list[tuple[str, str, str]]) -> str
            "regenerate it after the payload settles, never for an unresolved promotion.", "",
            "## Adopted research revision", "",
            f"Research: crystal-warden/prism-path, seeded at `{revision}`. Every adopted path was copied byte for",
-           "byte from the research revision recorded for it in `tools/manifest.lock`, which holds the source path,",
+           "byte from the research revision recorded for it in `tools/inventory.lock`, which holds the source path,",
            "the git blob id and the adopted revision per path; a promotion may advance one component's paths and",
            "leave another's, so the table below lists the distinct revisions each component carries.",
            "Product owned paths have no source. COMPATIBILITY.md says what the product promises about the",
@@ -111,7 +111,7 @@ def render_provenance(repo_root: Path, lines: list[tuple[str, str, str]]) -> str
             "`prismpath/tests/fixtures/reference_hashes.json` (adopted sha256 of research files at the adopted",
             "revision). The product copies may be edited afterwards; their current hashes are in `SHA256SUMS`.", "",
             f"Cause registry: `{reference['cause_registry_sha256']}`.",
-            f"Compiler reference manifest `{reference['compiler_references']['manifest']}`: `{reference['compiler_references']['manifest_sha256']}`.", "",
+            f"Compiler reference checksum list `{reference['compiler_references']['manifest']}`: `{reference['compiler_references']['checksum_list_sha256']}`.", "",
             "| Research file | Adopted sha256 | Product path |", "|---|---|---|"]
     for path in sorted(reference["files"]):
         item = reference["files"][path]

@@ -8,9 +8,9 @@ written."""
 import subprocess
 from pathlib import Path
 
-from tools import product_manifest, promote
+from tools import product_inventory, promote
 
-MANIFEST = """
+INVENTORY = """
 [meta]
 adopted_revision = "{revision}"
 
@@ -77,12 +77,12 @@ def _setup(tmp_path):
     for name in ("text.py", "gone.py", "binary.bin", "stable.py"):
         (product / "pkg" / name).write_bytes((research / "src" / name).read_bytes())
     (product / "tools").mkdir()
-    (product / "tools" / "manifest.toml").write_text(MANIFEST.format(revision=adopted))
+    (product / "tools" / "inventory.toml").write_text(INVENTORY.format(revision=adopted))
     entries = {f"pkg/{name}": {"path": f"pkg/{name}", "rule": "engine", "source_path": f"src/{name}", "source_blob": _blob(research, adopted, f"src/{name}"), "adopted_revision": adopted}
                for name in ("text.py", "gone.py", "binary.bin", "stable.py")}
-    entries["tools/manifest.toml"] = {"path": "tools/manifest.toml", "rule": "tools", "source_path": "", "source_blob": "", "adopted_revision": ""}
-    entries["tools/manifest.lock"] = {"path": "tools/manifest.lock", "rule": "tools", "source_path": "", "source_blob": "", "adopted_revision": ""}
-    product_manifest.write_lock(entries, product / "tools" / "manifest.lock")
+    entries["tools/inventory.toml"] = {"path": "tools/inventory.toml", "rule": "tools", "source_path": "", "source_blob": "", "adopted_revision": ""}
+    entries["tools/inventory.lock"] = {"path": "tools/inventory.lock", "rule": "tools", "source_path": "", "source_blob": "", "adopted_revision": ""}
+    product_inventory.write_lock(entries, product / "tools" / "inventory.lock")
     _commit(product, "seed")
     # promotions are staged on a review branch, never on the default branch
     _git(product, "checkout", "-q", "-b", "promote/review")
@@ -111,13 +111,13 @@ def test_update_merge_addition_and_lock_advance(tmp_path):
     assert merged == "research line\nline one\nline two\nline three\nproduct line\n"
     assert (product / "pkg" / "stable.py").read_text() == "stable, changed upstream\n"
     assert not (product / "pkg" / "new_module.py").exists()
-    lock = product_manifest.load_lock(product / "tools" / "manifest.lock")
+    lock = product_inventory.load_lock(product / "tools" / "inventory.lock")
     assert lock["pkg/text.py"]["source_blob"] == _blob(research, proposed, "src/text.py")
     assert lock["pkg/stable.py"]["source_blob"] == _blob(research, proposed, "src/stable.py")
     assert lock["pkg/text.py"]["adopted_revision"] == proposed and lock["pkg/stable.py"]["adopted_revision"] == proposed
     assert lock["pkg/gone.py"]["adopted_revision"] == adopted, "an untouched path keeps the revision it was adopted from"
     staged = _git(product, "diff", "--cached", "--name-only").stdout.decode().split()
-    assert "pkg/text.py" in staged and "pkg/stable.py" in staged and "tools/manifest.lock" in staged
+    assert "pkg/text.py" in staged and "pkg/stable.py" in staged and "tools/inventory.lock" in staged
 
 
 def test_conflicts_stop_everything_and_write_nothing(tmp_path):
@@ -152,7 +152,7 @@ def test_removal_of_an_unedited_file(tmp_path):
     assert kinds["pkg/gone.py"] == "remove"
     promote.apply_plan(product, plan, update_lock=True, revision=proposed)
     assert not (product / "pkg" / "gone.py").exists()
-    assert "pkg/gone.py" not in product_manifest.load_lock(product / "tools" / "manifest.lock")
+    assert "pkg/gone.py" not in product_inventory.load_lock(product / "tools" / "inventory.lock")
 
 
 def test_dirty_tree_and_bad_inputs_are_refused(tmp_path):

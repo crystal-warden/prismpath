@@ -6,9 +6,9 @@ pushes, none merges, none publishes.
 
 | Tool | What it is for |
 |---|---|
-| `manifest.toml` | the rules: what may be in the product (`ship`) and what never enters (`hold`), each with a purpose, an owner and a reason |
-| `manifest.lock` | every classified path with its rule, its research source path, the source blob and the research revision it was last adopted from; the review gate for new paths |
-| `product_manifest.py` | loads both; `check` fails on any tracked path that is unclassified or unlocked, `update-lock` adds new paths under their rule |
+| `inventory.toml` | the rules: what may be in the product (`ship`) and what never enters (`hold`), each with a purpose, an owner and a reason |
+| `inventory.lock` | every classified path with its rule, its research source path, the source blob and the research revision it was last adopted from; the review gate for new paths |
+| `product_inventory.py` | loads both; `check` fails on any tracked path that is unclassified or unlocked, `update-lock` adds new paths under their rule |
 | `provenance.py` | writes `PROVENANCE.md` and `SHA256SUMS` from the tracked tree and defines the tree digest; `check` recomputes and compares |
 | `check_compatibility.py` | adopted corpus hashes, the cause registry, the frozen compiler references recompiled into temporary output, crate fixture equality |
 | `check_boundary.py` | no held path present, no dangling local link, research links pinned to a commit; with `--wheel` or `--sdist`, the same over a built artifact plus the required members |
@@ -39,7 +39,7 @@ failure. The skips that remain legitimate, by test and reason, are listed in the
 
 1. Compare first: `python -m tools.compare_upstream --research ../prism-path --revision <commit>`.
    Read what changed, what the product had edited, and what research added under a shipped prefix.
-2. Additions are classification decisions: add each wanted path to `manifest.lock` under its rule,
+2. Additions are classification decisions: add each wanted path to `inventory.lock` under its rule,
    with its source path, in a reviewed commit. A held path never enters; a path nobody adds does not.
 3. On a clean tree and a review branch (the tool refuses main and master),
    `python -m tools.promote --research ../prism-path --revision <commit> --update-lock`.
@@ -47,7 +47,7 @@ failure. The skips that remain legitimate, by test and reason, are listed in the
    edited, removes what upstream deleted and the product had not touched, treats a file the product
    deleted and upstream changed as a conflict, and stops with nothing written if any file conflicts. Review the staged diff, resolve conflicts by hand where it stopped,
    and commit on a review branch.
-4. The lock now records the promoted revision on each promoted path; `manifest.toml` keeps the seed
+4. The lock now records the promoted revision on each promoted path; `inventory.toml` keeps the seed
    revision. Update `COMPATIBILITY.md` in the same review, and update
    `DIVERGENCES.md` for every difference kept on purpose, then `python -m tools.provenance write`.
 5. Run `acceptance.sh --leg full`. The pull request carries the report.
