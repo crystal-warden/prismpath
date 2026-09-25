@@ -16,6 +16,7 @@ pushes, none merges, none publishes.
 | `compare_upstream.py` | on request only: what changed in research since the adopted revision, per rule, and which product copies were edited; a report, never a build step |
 | `promote.py` | a three way integration of one research revision into the product; stages the result for `git diff --cached`, stops on conflicts, never commits |
 | `acceptance.sh` | the acceptance gates, run from an exported copy of the tree outside any checkout; `--leg full`, `python`, or `rust`; refuses any other leg and fails when a defined gate recorded no status; the extracted crates are tested together, patched to one another, never alone against the registry |
+| `end_to_end.py` | one flow through the installed wheel (command line, engine, compiler, signing, host, ledger, wire, receipts, journal, preflight, console) and through the extracted Rust candidates, the two compared at every seam; the full leg runs it, and it refuses to run from a source tree |
 | `release_policy.md` | a PrismPath flow, every edge deterministic, that decides release eligibility over the acceptance facts: eligible, refused, or missing evidence |
 | `release_eligibility.py` | runs the flow over an acceptance output directory and writes `release_receipt.json`, bound to the revision, the artifact hashes, the policy flow and image hashes and the report hashes, appended to a Merkle committed `release_receipts.log`; advisory during adoption, the script's exit status decides |
 | `tests/` | the repository maintenance suite for the tools above; needs the source tree |
@@ -26,6 +27,7 @@ pushes, none merges, none publishes.
 |---|---|---|
 | Product runtime | `python -m pytest --pyargs prismpath.tests prismpath.telemetry.tests -m "not cross_language"` | the installed package, numpy; the signing and control-plane extras and git to run every case |
 | Cross language | `python -m pytest --pyargs prismpath.tests -m cross_language` | cargo and rustc on the PATH, and the crate sources; runs only in the combined gate |
+| End to end | `python tools/end_to_end.py --candidates DIR --out DIR` | the installed wheel with every extra, the Rust toolchain, and a directory holding the four extracted candidate crates; the full leg supplies both |
 | Crates | `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` | the Rust toolchain; no Python |
 | Repository maintenance | `python -m pytest tools/tests` | the source tree and git |
 | Compatibility | `python -m tools.check_compatibility` | the source tree or the installed package; no network |

@@ -75,7 +75,7 @@ def model_check_flow(req: ModelCheckReq):
     resolved = _confine(req.flow_md)
     if not os.path.isfile(resolved):
         raise HTTPException(status_code=404, detail="flow file not found in the project")
-    if os.path.getsize(resolved) > core.MAX_FILE_BYTES:
+    if os.path.getsize(resolved) > core.SETTINGS.max_file_bytes:
         raise HTTPException(status_code=413, detail="flow exceeds MC_MAX_FILE_BYTES")
     try:
         graph = parse_file(resolved)
@@ -101,7 +101,7 @@ def walk_trail(req: TrailReq):
         path = _confine(req.source)
         if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="audit log not found in the project")
-        if os.path.getsize(path) > core.MAX_FILE_BYTES:
+        if os.path.getsize(path) > core.SETTINGS.max_file_bytes:
             raise HTTPException(status_code=413, detail="audit log exceeds MC_MAX_FILE_BYTES")
     else:
         path = core.AUDIT.path                        # the console's own mission audit log

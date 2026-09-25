@@ -41,6 +41,7 @@ REQUIRED_GATES = {
     "package boundary (wheel and sdist)": "boundary_ok",
     "python full: skip budget": "skip_budget_ok",
     "reproducible wheel and sdist": "reproducible_ok",
+    "end to end: Python chain from the wheel, Rust chain from the candidates, seams compared": "end_to_end_ok",
 }
 ROW = re.compile(r"^\| (.+?) \| (pass|FAIL|BLOCKED|skip) \| (.*) \|$")
 

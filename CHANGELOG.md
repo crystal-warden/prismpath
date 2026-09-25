@@ -24,6 +24,18 @@ changelog as adopted at that commit; the entries here are the product's own.
 - Mission Control with the September regroup of the package, the CLI runtime panels and file pickers.
 - `COMPATIBILITY.md`, `DIVERGENCES.md`, `PROVENANCE.md`, `SHA256SUMS`, the product Dictionary subset,
   and the maintenance tools under `tools/` with their tests under `tools/tests/`.
+- `tools/end_to_end.py`, one flow through the installed wheel (command line, engine, compiler, signing,
+  policy host, ledger, wire, receipts, journal, preflight, Mission Control) and through the extracted Rust
+  candidates, compared at every seam; a full leg acceptance gate and a release eligibility fact.
+
+### Fixed
+- **The policy host now persists the active policy** (`<state dir>/active.ppt` and `active_policy.json`).
+  `prismpath swap attest` and the console's attestation panel build a fresh host per call, so after a
+  successful swap they attested `active: None`; both now report the committed policy. A record whose
+  image is missing or of another digest is not restored and the ledger says so (`active_unreadable`).
+  Found by the end to end run.
+- Mission Control's model check and trail panels answered 500 on every call: the size guard read a
+  constant the settings object does not have. Found by the end to end run.
 
 ### Changed
 - **The signed pack host commits a swap in a fixed durable order: intent record, version floor, audit

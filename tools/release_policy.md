@@ -5,12 +5,12 @@ start: assess
 
 ## assess
 Read the acceptance facts for one artifact set: which leg ran, how many gates failed or never ran,
-whether the compatibility, provenance, boundary, skip budget and reproducibility gates passed, and
-whether every required piece of evidence is present. Emit `leg`, `evidence_complete`, `gates_failed`,
-`gates_missing`, `compatibility_ok`, `provenance_ok`, `boundary_ok`, `skip_budget_ok`,
-`reproducible_ok`.
+whether the compatibility, provenance, boundary, skip budget, reproducibility and end to end gates
+passed, and whether every required piece of evidence is present. Emit `leg`, `evidence_complete`,
+`gates_failed`, `gates_missing`, `compatibility_ok`, `provenance_ok`, `boundary_ok`, `skip_budget_ok`,
+`reproducible_ok`, `end_to_end_ok`.
 -> missing_evidence: when not evidence_complete
--> eligible: when leg == "full" and gates_failed == 0 and gates_missing == 0 and compatibility_ok and provenance_ok and boundary_ok and skip_budget_ok and reproducible_ok
+-> eligible: when leg == "full" and gates_failed == 0 and gates_missing == 0 and compatibility_ok and provenance_ok and boundary_ok and skip_budget_ok and reproducible_ok and end_to_end_ok
 -> refused: else
 
 ## missing_evidence

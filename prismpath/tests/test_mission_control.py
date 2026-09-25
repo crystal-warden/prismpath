@@ -236,3 +236,18 @@ def test_symlink_that_stays_inside_the_project_still_works(client, proj):
     response = client.get(API_V1 + "/file", params={"path": "flows/alias.md"})
     assert response.status_code == 200, response.text
 
+
+
+def test_model_check_and_trail_panels_answer(client, proj):
+    """The evaluator's two panels reach their kernel twins: the model check reports the flow's Level M
+    membership, and the trail walks an audit log and reports whether its root verifies. Both
+    guard the file size through the settings object; a wrong attribute there was a 500 on every call."""
+    checked = client.post(API_V1 + "/attest/model-check", json={"flow_md": "flows/triage.md"})
+    assert checked.status_code == 200, checked.text
+    assert "level_m" in checked.json()
+    log = audit_log.AuditLog(str(proj / "decisions.log"))
+    log.append("policy_host", "attestation", {"active": "ab" * 32, "version": 1})
+    walked = client.post(API_V1 + "/attest/trail", json={"source": "decisions.log"})
+    assert walked.status_code == 200, walked.text
+    report = walked.json()
+    assert report["log"]["verifies"] is True and report["by_action"] == {"attestation": 1}

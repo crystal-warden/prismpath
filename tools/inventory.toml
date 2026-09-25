@@ -1,5 +1,5 @@
-# The product manifest: what may be in this repository. tools/product_manifest.py explains the
-# semantics; tools/manifest.lock enumerates every classified path. Exact paths win over prefixes and
+# The product inventory: what may be in this repository. tools/product_inventory.py explains the
+# semantics; tools/inventory.lock enumerates every classified path. Exact paths win over prefixes and
 # longer prefixes win over shorter ones. A hold rule names a research area that must never enter.
 
 [meta]
@@ -344,7 +344,7 @@ kind = "ship"
 purpose = "tools"
 owner = "product"
 prefix = "tools/"
-reason = "the maintenance system: manifest, lock, provenance, checks, fixture sync, upstream comparison, promotion, acceptance, and their tests"
+reason = "the maintenance system: inventory, lock, provenance, checks, fixture sync, upstream comparison, promotion, acceptance, and their tests"
 
 # ------------------------------------------------------------------ hold: never enters the product
 [[rule]]

@@ -11,8 +11,9 @@
 #
 #   tools/acceptance.sh --leg full|python|rust [--out DIR] [--python PYTHON]
 #
-# full runs everything including the cross language tests and the repository checks; python runs the
-# Python gates on a box without Rust; rust runs the crate gates on a box without Python packages.
+# full runs everything including the cross language tests, the end to end run of one flow through the
+# installed wheel and the extracted crates, and the repository checks; python runs the Python gates on
+# a box without Rust; rust runs the crate gates on a box without Python packages.
 set -u
 
 LEG="full"
@@ -322,6 +323,10 @@ if [ "$LEG" = "full" ]; then
   run_gate "compatibility" "$OUT/compatibility.log" bash -c "cd '$EXPORT' && '$OUT/venv-full/bin/python' -m tools.check_compatibility --repo '$EXPORT'"
   run_gate "product maintenance suite" "$OUT/tools-tests.log" bash -c "cd '$REPO' && '$OUT/venv-full/bin/python' -m pytest tools/tests -q -p no:cacheprovider"
   run_gate "cross language tests" "$OUT/cross-language.log" bash -c "cd '$EXPORT' && '$OUT/venv-full/bin/python' -m pytest prismpath/tests -q -p no:cacheprovider -m cross_language -rs"
+  # One flow through everything: the installed wheel's command line, engine, compiler, signing, host,
+  # ledger, wire, journal, preflight and console, and the same flow through the extracted Rust
+  # candidates, compared at every seam. Runs from $OUT so the source tree cannot be imported.
+  run_gate "end to end: Python chain from the wheel, Rust chain from the candidates, seams compared" "$OUT/end-to-end.log" bash -c "cd '$OUT' && '$OUT/venv-full/bin/python' '$EXPORT/tools/end_to_end.py' --candidates '$OUT/candidates' --out '$OUT/end-to-end'"
   run_gate "provenance check" "$OUT/provenance.log" bash -c "cd '$REPO' && '$OUT/venv-full/bin/python' -m tools.provenance check"
 fi
 
@@ -329,7 +334,7 @@ fi
 # ran leaves no row, and a report with missing rows is a failure, not a pass by omission.
 PYTHON_GATES=("build wheel and sdist" "build again for reproducibility" "reproducible wheel and sdist" "package boundary (wheel and sdist)" "python base: fresh venv install of the wheel" "python base: CLI, import and runtime asset smoke" "python base: installed package test (base extras only)" "python full: install with signing, control-plane, test extras" "python full: runtime suite against the installed package" "python full: skip budget" "python full: fuzz the predicate sandbox" "canary verifier from the installed module" "signed pack from the installed wheel: keygen, envelope, compile, pack, verify" "mission control: installed launch, defaults, assets, validate, facet, pack verify, sprint subprocess" "source archive: unpack, rebuild, install, promised tests present" "documentation: examples and quickstart commands")
 RUST_GATES=("rust: workspace tests" "rust: clippy, warnings denied" "rust: cargo package prismpath-rs" "rust: extract package prismpath-rs" "rust: cargo package prismpath-telemetry-rs" "rust: extract package prismpath-telemetry-rs" "rust: cargo package prismpath-hotswap-rs" "rust: extract package prismpath-hotswap-rs" "rust: cargo package prismpath-preflight" "rust: extract package prismpath-preflight" "rust: extracted candidates resolve one another, not the registry")
-FULL_GATES=("inventory and boundary: repository" "compatibility" "product maintenance suite" "cross language tests" "provenance check")
+FULL_GATES=("inventory and boundary: repository" "compatibility" "product maintenance suite" "cross language tests" "end to end: Python chain from the wheel, Rust chain from the candidates, seams compared" "provenance check")
 EXPECTED=("export tracked tree")
 case "$LEG" in
   full) EXPECTED+=("${PYTHON_GATES[@]}" "${RUST_GATES[@]}" "${FULL_GATES[@]}") ;;

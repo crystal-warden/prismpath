@@ -593,6 +593,7 @@ tools/acceptance.sh	tools
 tools/check_boundary.py	tools			
 tools/check_compatibility.py	tools			
 tools/compare_upstream.py	tools			
+tools/end_to_end.py	tools			
 tools/fixture_sync.py	tools			
 tools/inventory.lock	tools			
 tools/inventory.toml	tools			

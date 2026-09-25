@@ -52,8 +52,8 @@ class Rule:
         return repo_path.startswith(self.prefix or "\0")
 
 
-def load_rules(manifest_path: Path = INVENTORY_PATH) -> list[Rule]:
-    document = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+def load_rules(inventory_path: Path = INVENTORY_PATH) -> list[Rule]:
+    document = tomllib.loads(inventory_path.read_text(encoding="utf-8"))
     rules = []
     for entry in document.get("rule", []):
         if entry.get("kind") not in ("ship", "hold"):
@@ -68,8 +68,8 @@ def load_rules(manifest_path: Path = INVENTORY_PATH) -> list[Rule]:
     return rules
 
 
-def adopted_revision(manifest_path: Path = INVENTORY_PATH) -> str:
-    return tomllib.loads(manifest_path.read_text(encoding="utf-8"))["meta"]["adopted_revision"]
+def adopted_revision(inventory_path: Path = INVENTORY_PATH) -> str:
+    return tomllib.loads(inventory_path.read_text(encoding="utf-8"))["meta"]["adopted_revision"]
 
 
 def classify(repo_path: str, rules: list[Rule]) -> Rule | None:
@@ -163,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     if findings or stale:
         print(f"{len(findings)} unclassified, {len(stale)} stale")
         return 1
-    print(f"manifest ok: {len(paths)} tracked paths classified and locked, {len(rules)} rules")
+    print(f"inventory ok: {len(paths)} tracked paths classified and locked, {len(rules)} rules")
     return 0
 
 
