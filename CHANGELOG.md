@@ -33,9 +33,9 @@ changelog as adopted at that commit; the entries here are the product's own.
   `prismpath swap attest` and the console's attestation panel build a fresh host per call, so after a
   successful swap they attested `active: None`; both now report the committed policy. A record whose
   image is missing or of another digest is not restored and the ledger says so (`active_unreadable`).
-  Found by the end to end run.
+  Found by the end to end run; applied to research at e28222c.
 - Mission Control's model check and trail panels answered 500 on every call: the size guard read a
-  constant the settings object does not have. Found by the end to end run.
+  constant the settings object does not have. Found by the end to end run; applied to research at e28222c.
 
 ### Changed
 - **The signed pack host commits a swap in a fixed durable order: intent record, version floor, audit

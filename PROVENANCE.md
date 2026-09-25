@@ -54,7 +54,7 @@ adopted material; DIVERGENCES.md lists the intentional differences.
 | gitignore | packaging | research | 1 (1 adopted) | `.gitignore` | 40a9b05b3523 |
 | github-templates | packaging | research | 4 (4 adopted) | `.github/` | 40a9b05b3523 |
 | product-ci | tools | product | 1 (0 adopted) | product authored | none |
-| tools | tools | product | 22 (0 adopted) | product authored | none |
+| tools | tools | product | 23 (0 adopted) | product authored | none |
 
 ## Relocations and copies
 
@@ -129,4 +129,4 @@ sha256 over one line per tracked file, `<mode> <sha256> <path>` plus newline, so
 path, mode from the git index, sha256 over the exact bytes; `PROVENANCE.md` and `SHA256SUMS` excluded.
 A comparison aid, not a signature.
 
-`47f7ad546c4e3d586d0a4e1e72887e4fd75a2812a26f25e255157a85ec41d241` over 608 files.
+`d9649d9083f54b31c50834f602832f29b404c8d3048b4d0cfa5bbbcaa99f759b` over 609 files.
