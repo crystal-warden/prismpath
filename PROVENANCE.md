@@ -16,25 +16,25 @@ adopted material; DIVERGENCES.md lists the intentional differences.
 
 | Rule | Purpose | Owner | Paths | Adopted from | Adopted revisions |
 |---|---|---|---|---|---|
-| python-engine | engine | research | 304 (299 adopted) | `prismpath/` | 40a9b05b3523 |
+| python-engine | engine | research | 314 (314 adopted) | `prismpath/` | 40a9b05b3523, a0cccf85e928 |
 | compiler | engine | research | 1 (1 adopted) | `prismpath-hw/ppt_compile.py` | 40a9b05b3523 |
-| canary-verifier | facet | research | 1 (1 adopted) | `integrations/vector/canary_verify.py` | 40a9b05b3523 |
+| canary-verifier | facet | research | 1 (1 adopted) | `integrations/vector/canary_verify.py` | a0cccf85e928 |
 | flow-fixtures | fixtures | research | 1 (1 adopted) | `prismpath/tests/test_portable_conformance.py` | 40a9b05b3523 |
 | compiler-references | fixtures | product | 28 (1 adopted) | product authored | 40a9b05b3523 |
 | authored-fixtures | fixtures | product | 26 (24 adopted) | product authored | 40a9b05b3523 |
-| product-tests | tests | product | 102 (97 adopted) | product authored | 40a9b05b3523 |
-| crate-kernel | engine | research | 21 (21 adopted) | `prismpath-rs/` | 40a9b05b3523 |
-| crate-telemetry | facet | research | 29 (28 adopted) | `prismpath-telemetry-rs/` | 40a9b05b3523 |
-| crate-hotswap | engine | research | 5 (5 adopted) | `prismpath-hotswap-rs/` | 40a9b05b3523 |
-| crate-preflight | facet | research | 5 (5 adopted) | `prismpath-preflight/` | 40a9b05b3523 |
-| crate-fixtures | fixtures | product | 11 (11 adopted) | product authored | 40a9b05b3523 |
-| crate-fixtures-telemetry | fixtures | product | 5 (4 adopted) | product authored | 40a9b05b3523 |
+| product-tests | tests | product | 103 (98 adopted) | product authored | 40a9b05b3523, a0cccf85e928 |
+| crate-kernel | engine | research | 23 (23 adopted) | `prismpath-rs/` | 40a9b05b3523, a0cccf85e928 |
+| crate-telemetry | facet | research | 31 (31 adopted) | `prismpath-telemetry-rs/` | 40a9b05b3523, a0cccf85e928 |
+| crate-hotswap | engine | research | 5 (5 adopted) | `prismpath-hotswap-rs/` | 40a9b05b3523, a0cccf85e928 |
+| crate-preflight | facet | research | 5 (5 adopted) | `prismpath-preflight/` | 40a9b05b3523, a0cccf85e928 |
+| crate-fixtures | fixtures | product | 12 (12 adopted) | product authored | 40a9b05b3523, a0cccf85e928 |
+| crate-fixtures-telemetry | fixtures | product | 8 (8 adopted) | product authored | 40a9b05b3523, a0cccf85e928 |
 | crate-fixtures-hotswap | fixtures | product | 1 (1 adopted) | product authored | 40a9b05b3523 |
-| cargo-workspace | packaging | research | 2 (2 adopted) | `Cargo.` | 40a9b05b3523 |
+| cargo-workspace | packaging | research | 2 (2 adopted) | `Cargo.` | 40a9b05b3523, a0cccf85e928 |
 | docs | docs | research | 21 (20 adopted) | `docs/` | 40a9b05b3523 |
 | root-docs | docs | research | 1 (0 adopted) | product authored | none |
-| spec | docs | research | 1 (1 adopted) | `SPEC.md` | 40a9b05b3523 |
-| protocol | docs | research | 1 (1 adopted) | `PROTOCOL.md` | 40a9b05b3523 |
+| spec | docs | research | 1 (1 adopted) | `SPEC.md` | a0cccf85e928 |
+| protocol | docs | research | 1 (1 adopted) | `PROTOCOL.md` | a0cccf85e928 |
 | root-text | docs | research | 1 (1 adopted) | `GETTING_STARTED.md` | 40a9b05b3523 |
 | changelog | docs | research | 1 (1 adopted) | `CHANGELOG.md` | 40a9b05b3523 |
 | product-records | docs | product | 1 (0 adopted) | product authored | none |
@@ -69,17 +69,22 @@ Product paths whose research source path differs, so a promotion can follow them
 | `prismpath-rs/tests/fixtures/crypto_agility.json` | `prismpath/portable/conformance/crypto_agility.json` | `2c965b767033b3dc250eb7747d0bc1b19079f435` |
 | `prismpath-rs/tests/fixtures/crypto_migration.json` | `prismpath/portable/conformance/crypto_migration.json` | `e7fe8c76c672d13b47ea8c91585490aa44cacf16` |
 | `prismpath-rs/tests/fixtures/durable.json` | `prismpath/portable/conformance/durable.json` | `cb704c81bca6f64c13f4c29fe4e7213087ec748c` |
+| `prismpath-rs/tests/fixtures/field_definitions.json` | `prismpath/portable/conformance/field_definitions.json` | `3776e8ddf7088aa05083fc2ec05ab52a7a5ebd80` |
 | `prismpath-rs/tests/fixtures/flows.json` | `prismpath/portable/conformance/flows.json` | `161d0d5669f7ce8ed2a379fa6e8c37f9079d9d7b` |
 | `prismpath-rs/tests/fixtures/level_m.json` | `prismpath/portable/conformance/level_m.json` | `a4ad1bc748e314cc9d49d13f120e4570e79e6b29` |
 | `prismpath-rs/tests/fixtures/locked_flows.json` | `prismpath/portable/conformance/locked_flows.json` | `b54ca215eb71f08d3f7528c4b8be5d001ea5c509` |
-| `prismpath-rs/tests/fixtures/predicates.json` | `prismpath/portable/conformance/predicates.json` | `f26f2c26e1d41f3e66b992dc00638b35f372fbb7` |
+| `prismpath-rs/tests/fixtures/predicates.json` | `prismpath/portable/conformance/predicates.json` | `b9498e12790ac63cca640bc0a6c5e2b24723ecbd` |
 | `prismpath-rs/tests/fixtures/reach.json` | `prismpath/portable/conformance/reach.json` | `74103f74ec1402dd321f3c3cf1580624f3ab6c84` |
-| `prismpath-telemetry-rs/tests/fixtures/boundary.json` | `prismpath/telemetry/conformance/boundary.json` | `3a4aeef4c2441d98333caf7fedcecb030d43c878` |
+| `prismpath-telemetry-rs/tests/fixtures/boundary.json` | `prismpath/telemetry/conformance/boundary.json` | `bc7cbd68529589a4e878df666ea003bc640f78eb` |
 | `prismpath-telemetry-rs/tests/fixtures/decisions.json` | `prismpath/telemetry/conformance/decisions.json` | `6b2af14b05b1746452248425f83b4379f67d1116` |
+| `prismpath-telemetry-rs/tests/fixtures/defined_wire.json` | `prismpath/telemetry/conformance/defined_wire.json` | `38faa27e580592d8257e5485db1f196ecab5ee32` |
+| `prismpath-telemetry-rs/tests/fixtures/field_definitions.json` | `prismpath/portable/conformance/field_definitions.json` | `3776e8ddf7088aa05083fc2ec05ab52a7a5ebd80` |
+| `prismpath-telemetry-rs/tests/fixtures/inputs.json` | `prismpath/telemetry/conformance/inputs.json` | `15983780b2ee80b8c3e2383010374621747bd74b` |
+| `prismpath-telemetry-rs/tests/fixtures/policy_forms.json` | `prismpath/telemetry/conformance/policy_forms.json` | `3189d9f2757fdbdaad14a8c0cf51caeeb6fe76ab` |
 | `prismpath-telemetry-rs/tests/fixtures/spiral.json` | `prismpath/telemetry/conformance/spiral.json` | `084432dff3ecb1e975218ce359bdc23ab4bc3750` |
 | `prismpath/kernel/ppt_compile.py` | `prismpath-hw/ppt_compile.py` | `26553d4f100528ec038b51dc1600c31152cf5671` |
 | `prismpath/portable/flow_fixtures.py` | `prismpath/tests/test_portable_conformance.py` | `d0949c29556c563fb835c1bacb8e4ece938b31b4` |
-| `prismpath/telemetry/canary_verify.py` | `integrations/vector/canary_verify.py` | `9217817e4688d042ee91769b80c529179f16a4ae` |
+| `prismpath/telemetry/canary_verify.py` | `integrations/vector/canary_verify.py` | `2c0cbb7152385d66e79e88a863d810745405a12c` |
 | `prismpath/tests/fixtures/alert_router.md` | `prismpath/examples/code_nodes_gemma/alert_router.md` | `0e7065c35af700be1b6ba76c10eb541cbe611db8` |
 | `prismpath/tests/fixtures/compiler/anchored/incident_severity.ppt` | `prismpath-hw/evidence/incident_severity.ppt` | `dbf86190b9dd3a3546530f47acfb81e6a49a4b3c` |
 | `prismpath/tests/test_ppt_compile.py` | `prismpath-hw/test_ppt_compile.py` | `6174f635c57b49927ddf5b61c611f132739e47aa` |
@@ -95,9 +100,9 @@ Compiler reference checksum list `prismpath/tests/fixtures/compiler/SHA256SUMS`:
 
 | Research file | Adopted sha256 | Product path |
 |---|---|---|
-| `PROTOCOL.md` | `9e81b0421af4a29c184378c8df5dcf97c1ae99b30cf0e8cea2b88b971badb464` | `PROTOCOL.md` |
-| `SPEC.md` | `6f17371550921258fc60325d9fb1c90bd6c0fa167593394359d594d88ecd012f` | `SPEC.md` |
-| `docs/DICTIONARY.md` | `407c44cb5a7e34de2c626bce86bb294355d8e02f87c2e7473bf2fbefc4115ee1` | not carried |
+| `PROTOCOL.md` | `2272a5e005238482a07e352e30a016e3532c34393b9c92bf9d07d0bd1c46832c` | `PROTOCOL.md` |
+| `SPEC.md` | `a811cc770a863e2893867355d99dbb14212ec20e3a23b04f661fe86eef35a171` | `SPEC.md` |
+| `docs/DICTIONARY.md` | `514d24f331f9913c4a7177b671ec68573a945cc8006038c7d2ee5b91ae19450c` | not carried |
 | `prismpath-hw/TABLE_FORMAT.md` | `f0561aaeef21e7494f63cf363b23d425417b904bcf655c67e69b7a6751dd017c` | not carried |
 | `prismpath-hw/evidence/incident_severity.ppt` | `314b033cd1251b6da7671cbd8a209be0b46d3babd77e254bed1b669ea4d83065` | `prismpath/tests/fixtures/compiler/anchored/incident_severity.ppt` |
 | `prismpath/portable/conformance/capability.json` | `aae25200a171935e0b044d5a6d30189255779416eeb2e33fa03bbf2af9f1c166` | `prismpath/portable/conformance/capability.json` |
@@ -106,16 +111,19 @@ Compiler reference checksum list `prismpath/tests/fixtures/compiler/SHA256SUMS`:
 | `prismpath/portable/conformance/crypto_agility.json` | `4354755c20963f38497dbcd85b69678835403ce0fcf1ebe88e0cb16c04af589c` | `prismpath/portable/conformance/crypto_agility.json` |
 | `prismpath/portable/conformance/crypto_migration.json` | `6d333b40433256f83526909f83dd7502ddced9cfc4b91fefde6e8e7d74297b6d` | `prismpath/portable/conformance/crypto_migration.json` |
 | `prismpath/portable/conformance/durable.json` | `eed49418e33d86ca9700cd771e715a7178b65efc92b13d3c20466b9d95d84866` | `prismpath/portable/conformance/durable.json` |
+| `prismpath/portable/conformance/field_definitions.json` | `50c777852951a0d03d17fcbf9db01c70322af3fb1432d40a76bc47c7df67df18` | `prismpath/portable/conformance/field_definitions.json` |
 | `prismpath/portable/conformance/flows.json` | `5c294462e9ef1a0ae040791af8c9f98653f6d1bf27822947f66bd62dbe238a6f` | `prismpath/portable/conformance/flows.json` |
 | `prismpath/portable/conformance/hotswap.json` | `2ab87cc2e406accb39deb82577ddd461fd33dda87d18b95b3be70f92028afe09` | `prismpath/portable/conformance/hotswap.json` |
 | `prismpath/portable/conformance/level_m.json` | `58b811a0ba277b359508ca15eed690415b0e0751ccbe76037001ad967bcb8d1d` | `prismpath/portable/conformance/level_m.json` |
 | `prismpath/portable/conformance/locked_flows.json` | `4da0192c4209b44b17bfddecb8edc78347093d82f876d234dd98642efc4595e6` | `prismpath/portable/conformance/locked_flows.json` |
-| `prismpath/portable/conformance/predicates.json` | `49e17b9ceb45b25fa47b8b2ac93c7c3b3a074c8ce843276eaf9a92894a0aba7b` | `prismpath/portable/conformance/predicates.json` |
+| `prismpath/portable/conformance/predicates.json` | `7ac112866e36147202866f7615ea6592ba828578d04368bebb2d90405e7bb711` | `prismpath/portable/conformance/predicates.json` |
 | `prismpath/portable/conformance/reach.json` | `98f00afc250f68dc8b552905236fdca221e0e4ee31bc306644c290cd017ff9d6` | `prismpath/portable/conformance/reach.json` |
 | `prismpath/portable/conformance/safety.json` | `c1a5c7e5bbe3ada30a275d9c803572497bf9c8f2a0f240a0e8aea208ef6febe1` | `prismpath/portable/conformance/safety.json` |
-| `prismpath/telemetry/conformance/boundary.json` | `47de3f16d1593a3607f7be642bd1878ec6d39f4e44f3dfc0f9e87220b144c209` | `prismpath/telemetry/conformance/boundary.json` |
+| `prismpath/telemetry/conformance/boundary.json` | `00d4ec70d1f49b7fbe0d985f51d325fdeea60c52a5e8b9ff39f4cc29fa3062c4` | `prismpath/telemetry/conformance/boundary.json` |
 | `prismpath/telemetry/conformance/decisions.json` | `6b68a08de7f57cdd11bee07bd256587094dc353b959d1195473c6880472479c8` | `prismpath/telemetry/conformance/decisions.json` |
-| `prismpath/telemetry/conformance/inputs.json` | `0ea417177b0418ac9ea79823841c5124851bb29b33ebd1641d6a674f653837d0` | `prismpath/telemetry/conformance/inputs.json` |
+| `prismpath/telemetry/conformance/defined_wire.json` | `a289ca9233e63c03f75c64152b2769f377069ec26de9b162ce6a24d000fd2d65` | `prismpath/telemetry/conformance/defined_wire.json` |
+| `prismpath/telemetry/conformance/inputs.json` | `3af3541d5107695114acbb7d19e0083e3e1e5ff53623cb8427bffbe443a4f7dc` | `prismpath/telemetry/conformance/inputs.json` |
+| `prismpath/telemetry/conformance/policy_forms.json` | `1f7b71c29a7b5983b31dbb10bfd72d6e3757d5ee84bc07b919a553ed8468699d` | `prismpath/telemetry/conformance/policy_forms.json` |
 | `prismpath/telemetry/conformance/receipts.json` | `78181a5873ed88e5cd17ccae216641a09f9ec3bd79fcc3562fc4de452c539974` | `prismpath/telemetry/conformance/receipts.json` |
 | `prismpath/telemetry/conformance/spiral.json` | `050b031bf5c55cbf0fbd88a562ad80a58446b1466a10d1126fc974bb9a0dc444` | `prismpath/telemetry/conformance/spiral.json` |
 
@@ -129,4 +137,4 @@ sha256 over one line per tracked file, `<mode> <sha256> <path>` plus newline, so
 path, mode from the git index, sha256 over the exact bytes; `PROVENANCE.md` and `SHA256SUMS` excluded.
 A comparison aid, not a signature.
 
-`d9649d9083f54b31c50834f602832f29b404c8d3048b4d0cfa5bbbcaa99f759b` over 609 files.
+`3f31fbe4befb65506c3fc9971b72e81032ba2c94aec7163084a00eed163ae5ad` over 628 files.
