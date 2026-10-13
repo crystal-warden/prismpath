@@ -259,8 +259,14 @@ if [ "$LEG" = "full" ] || [ "$LEG" = "rust" ]; then
     export CARGO_TARGET_DIR="$OUT/cargo-target"
     run_gate "rust: workspace tests" "$OUT/cargo-test.log" bash -c "cd '$EXPORT' && cargo test --workspace -q"
     run_gate "rust: clippy, warnings denied" "$OUT/clippy.log" bash -c "cd '$EXPORT' && cargo clippy --workspace --all-targets -q -- -D warnings"
+    # The four crates are packaged in one invocation from the workspace root, so a crate whose sibling's
+    # new version is not yet on crates.io still resolves it: cargo stages the packages being assembled
+    # as a local overlay of the registry. Packaged one at a time, prismpath-telemetry-rs 0.2.0 failed to
+    # find prismpath-rs 0.2.0 before its publication (October 2026). The extracted candidates below are
+    # still tested together and patched to one another, never against the registry.
+    ALL_CRATES="-p prismpath-rs -p prismpath-telemetry-rs -p prismpath-hotswap-rs -p prismpath-preflight"
     for crate in prismpath-rs prismpath-telemetry-rs prismpath-hotswap-rs prismpath-preflight; do
-      run_gate "rust: cargo package $crate" "$OUT/package-$crate.log" bash -c "cd '$EXPORT/$crate' && cargo package -q --allow-dirty --no-verify --list > '$OUT/package-$crate.list' && cargo package -q --allow-dirty --no-verify && grep -q 'tests/' '$OUT/package-$crate.list'"
+      run_gate "rust: cargo package $crate" "$OUT/package-$crate.log" bash -c "cd '$EXPORT' && cargo package -q --allow-dirty --no-verify --list -p $crate > '$OUT/package-$crate.list' && cargo package -q --allow-dirty --no-verify $ALL_CRATES && ls '$OUT'/cargo-target/package/$crate-*.crate > /dev/null && grep -q 'tests/' '$OUT/package-$crate.list'"
       # The package is extracted for the candidate gate below. Testing it alone would resolve its
       # sibling crates from the registry, whose published API can lag the candidate, so the only
       # extracted test that means anything runs the four candidates together, patched to each other.

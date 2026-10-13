@@ -75,8 +75,12 @@ READINGS = [
     {"temp": 20, "armed": False, "zone": "vault"},
     {"temp": 60, "armed": False, "zone": "lobby"},
     {"temp": 20, "armed": False, "zone": "lobby"},
-    {"temp": "90", "armed": 1, "zone": "vault"},
+    {"temp": 90, "armed": 1, "zone": "vault"},
 ]
+# A value the boundary refuses, carried through both encoders to the same refusal. Until the promotion
+# to research a0cccf8 this string was a reading the encoders parsed; since then parsing is the adapter's
+# job, and the encoders name the field and the reason instead (acceptance corpus version 2).
+REFUSED_READING = {"temp": "90", "armed": 1, "zone": "vault"}
 RUST_PROGRAM = r"""//! The Rust half of the end to end run: the same flow and readings through the extracted candidate
 //! crates, results as JSON for the Python side to compare seam by seam.
 use prismpath_rs::{parse, run, Graph, RunOpts, Value};
@@ -117,9 +121,13 @@ fn main() {
             "decoded_route": wire::route_node(&graph, "assess", &decoded),
         }));
     }
+    let refused = match wire::encode_reading_checked(&parts, &reading_of(&job["refused"])) {
+        Err(error) => serde_json::json!({"field": error.field, "reason": error.refusal.reason()}),
+        Ok(_) => serde_json::json!({"encoded": true}),
+    };
     let (ok, reasons, _manifest) = prismpath_hotswap_rs::verify_pack(job["ppt"].as_str().unwrap(), &[job["pub"].as_str().unwrap().to_string()], &[]);
     let (level_m, _non_member) = prismpath_rs::flow_level_m(&graph);
-    println!("{}", serde_json::json!({"readings": results, "pack_verify": {"ok": ok, "reasons": reasons}, "level_m": level_m}));
+    println!("{}", serde_json::json!({"readings": results, "refused": refused, "pack_verify": {"ok": ok, "reasons": reasons}, "level_m": level_m}));
 }
 
 fn hex_of(bytes: &[u8]) -> String {
@@ -179,7 +187,7 @@ def python_chain(work: Path, report: dict) -> dict:
     node_index = {name: index for index, name in enumerate(graph.nodes)}
     for sequence, reading in enumerate(READINGS):
         # The wire carries the accepted reading: the value each field's acceptance rule converts the
-        # raw value into (an integer literal string becomes the integer, a 0 or 1 becomes the bool).
+        # raw value into (a 0 or 1 on a boolean field becomes the bool, an integral float the integer).
         # The engine on the raw reading may decide differently, and the report records both routes.
         accepted = accepted_reading(parts, reading)
         raw_route = wire.route_node(graph, "assess", reading)
@@ -239,7 +247,14 @@ def python_chain(work: Path, report: dict) -> dict:
     preflight_python = json.loads((work / "preflight_python.json").read_text())
     require(preflight_python["ready"] is True and preflight_python["refused_by_field"] == {}, "Python preflight READY", json.dumps(preflight_python)[:400])
     report["preflight_python"] = {"ready": preflight_python["ready"], "encoded": preflight_python["encoded"]}
-    return {"flow": FLOW, "readings": READINGS, "accepted": accepted_readings, "ppt": str(work / "perimeter.ppt"), "pub": str(work / "keys" / "authority.pub")}
+    try:
+        wire.encode_reading_checked(parts, REFUSED_READING)
+        report["refused"] = {"encoded": True}
+    except quantizer.InputRefused as refusal:
+        report["refused"] = {"field": refusal.field, "reason": refusal.reason}
+    require(report["refused"] == {"field": "temp", "reason": "wrong_type"}, "the boundary refuses a numeric string (Python)", str(report["refused"]))
+    return {"flow": FLOW, "readings": READINGS, "accepted": accepted_readings, "refused": REFUSED_READING,
+            "ppt": str(work / "perimeter.ppt"), "pub": str(work / "keys" / "authority.pub")}
 
 
 def mission_control_chain(work: Path, report: dict) -> None:
@@ -297,6 +312,7 @@ def rust_chain(candidates: Path, out: Path, job: dict, report: dict) -> None:
         for seam in ("raw_route", "engine_path", "stopped", "route", "bits", "frame_hex", "decoded_route"):
             require(python_side[seam] == rust_side[seam], f"Python versus Rust {seam}", f"reading {index}: {python_side[seam]!r} versus {rust_side[seam]!r}")
     require(len(rust["readings"]) == len(report["readings"]), "Rust ran every reading", "")
+    require(rust["refused"] == report["refused"], "Python versus Rust refusal of a numeric string", f"{report['refused']} versus {rust['refused']}")
     require(rust["pack_verify"]["ok"] is True, "pack signed by Python verifies in Rust", str(rust["pack_verify"]))
     require(rust["level_m"] is True, "Rust classifies the flow as Level M", "")
     report["rust"] = {"readings_compared": len(rust["readings"]), "pack_verify": rust["pack_verify"], "level_m": rust["level_m"]}
