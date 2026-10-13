@@ -65,7 +65,7 @@ fn route(graph: &prismpath_rs::Graph, node: &str, reading: &HashMap<String, V>) 
 }
 
 fn assert_decisions_preserved(graph: &prismpath_rs::Graph, node: &str, readings: &[HashMap<String, V>]) {
-    let parts = quantizer::build_partitions(graph);
+    let parts = quantizer::build_partitions(graph).expect("the flow partitions");
     for reading in readings {
         let orig = route(graph, node, reading);
         let recon = route(graph, node, &quantizer::reconstruct(&parts, &quantizer::quantize(&parts, reading).unwrap()));
@@ -76,7 +76,7 @@ fn assert_decisions_preserved(graph: &prismpath_rs::Graph, node: &str, readings:
 #[test]
 fn test_incident_partition_is_minimal() {
     let graph = parse(INCIDENT);
-    let parts = quantizer::build_partitions(&graph);
+    let parts = quantizer::build_partitions(&graph).expect("the flow partitions");
     assert_eq!(parts["error_rate"].kind, quantizer::FieldKind::Numeric);
     assert_eq!(parts["error_rate"].n, 4);
     assert_eq!(parts["data_at_risk"].kind, quantizer::FieldKind::Boolean);
@@ -88,7 +88,7 @@ fn test_incident_partition_is_minimal() {
 #[test]
 fn test_categorical_partition_shape() {
     let graph = parse(CATEGORICAL);
-    let parts = quantizer::build_partitions(&graph);
+    let parts = quantizer::build_partitions(&graph).expect("the flow partitions");
     assert_eq!(parts["kind"].kind, quantizer::FieldKind::Categorical);
     assert_eq!(parts["kind"].n, 4);
     assert_eq!(parts["status"].kind, quantizer::FieldKind::Categorical);
@@ -98,7 +98,7 @@ fn test_categorical_partition_shape() {
 #[test]
 fn test_numeric_equality_keeps_the_point_cell() {
     let graph = parse(NUMERIC_EQ);
-    let parts = quantizer::build_partitions(&graph);
+    let parts = quantizer::build_partitions(&graph).expect("the flow partitions");
     assert_eq!(parts["x"].kind, quantizer::FieldKind::Numeric);
     assert_eq!(parts["x"].n, 4);
     assert_ne!(parts["x"].symbol(&V::Num(5.0)).unwrap(), parts["x"].symbol(&V::Num(4.0)).unwrap());
@@ -154,7 +154,7 @@ fn test_numeric_equality_decisions_preserved() {
 #[test]
 fn test_symbols_are_small() {
     let graph = parse(INCIDENT);
-    let parts = quantizer::build_partitions(&graph);
+    let parts = quantizer::build_partitions(&graph).expect("the flow partitions");
     let mut reading = HashMap::new();
     reading.insert("data_at_risk".to_string(), V::Bool(true));
     reading.insert("user_facing".to_string(), V::Bool(false));
@@ -178,4 +178,35 @@ fn test_out_of_partition_numeric_is_err_not_panic() {
     let mut reading = HashMap::new();
     reading.insert("x".to_string(), V::Num(99.0));
     assert!(quantizer::quantize(&parts, &reading).is_err());
+}
+
+
+/// Found in October 2026 by the Lean formalization's float check: the permissive `symbol` truncated a
+/// fraction with `as i64`, toward zero, which moved the reading across a cut and changed the decision.
+/// A fraction and a non finite number are refused on the permissive path now, as on the checked one.
+#[test]
+fn a_fraction_is_refused_on_the_permissive_path_never_truncated() {
+    const CUTS: &str = r#"---
+name: cuts
+start: s
+---
+## s
+@emits(x)
+-> hit: when x < 0
+-> hit: when x == 3
+-> hit: when x in [7]
+-> miss: else
+## hit
+## miss
+"#;
+    let parts = quantizer::build_partitions(&parse(CUTS)).expect("the flow partitions");
+    let x = &parts["x"];
+    for value in [-0.5, -0.9, 3.5, 7.5, 0.25, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let error = x.symbol(&V::Num(value)).expect_err("a fraction or non finite number must be refused");
+        // a refusal by reason, the same names Python reports: never a truncated cell
+        assert!(error.contains("fractional") || error.contains("out_of_range"), "{value}: {error}");
+    }
+    for value in [-1.0, 0.0, 3.0, 7.0] {
+        assert!(x.symbol(&V::Num(value)).is_ok(), "an integral float is still its integer: {value}");
+    }
 }

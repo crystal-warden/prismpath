@@ -39,6 +39,7 @@ Normatively:
 - **Front matter**: an optional leading `---\n … \n---\n` block of `key: value` lines. `name`
   defaults to `"flow"` **only when absent** (an empty value stays empty); `start` falls back to
   the first node when absent *or empty*.
+  Keys of the form `field.<name>` define the flow's fields (§4.5).
 - **Node**: a line matching `^\s*##\s+(.+?)\s*$`. The node name is the heading, trimmed,
   lowercased, with spaces replaced by underscores (`Write Code` → `write_code`). A later heading
   with the same normalized name replaces the earlier node.
@@ -137,6 +138,13 @@ Over JSON-representable values (null, bool, number, string, array, object):
   is **satisfied** ("unknown → falsy", consistently).
 - `and`/`or` evaluate **all** operands (no observable short-circuit; evaluation is pure) and
   return a boolean.
+- **The portable numeric domain.** The reference compares integers exactly at any size; kernels that
+  hold numbers as IEEE doubles (the JavaScript, Rust and Go kernels) compare them exactly only within
+  plus or minus 2^53 minus 1, and a JSON reader may round a larger integer before any comparison
+  happens. The conformance vectors therefore stop at that edge, and the decision boundary refuses an
+  integer beyond it (the Facet acceptance rules, §4.5). NaN and the infinities have no JSON spelling,
+  so their semantics above are pinned by each implementation's own tests rather than by the
+  language neutral vectors.
 
 ### 4.3 The match-action fragment (Level M) · the synthesizable core
 
@@ -145,13 +153,20 @@ A predicate is in the **match action fragment** iff it is a boolean combination 
 
 - `field OP constant` with `OP ∈ {==, !=, <, <=, >, >=}`, `field` a name, and `constant` an
   **integer** (positive or negative; a leading `-`/`+` on an integer literal folds to a signed
-  `i32` constant; the table stores `val` as signed `i32`), boolean, or string literal (string
-  constants with `==`/`!=` only). The value domain of the fragment is `i32`; **float literals are
-  excluded**: a `field OP <float>` condition is outside the fragment (it has no representation on
-  the i32 match action table), and a sign on anything other than an integer literal (a float, or a
-  field name as in `-x`) does **not** fold and stays outside the language;
+  constant), boolean, or string literal (string constants with `==`/`!=` only). **Float literals are
+  excluded**: a `field OP <float>` condition is outside the fragment, and a sign on anything other
+  than an integer literal (a float, or a field name as in `-x`) does **not** fold and stays outside
+  the language. A decimal literal compared with a `fixed` field is not a float; the parser lowers it
+  to an integer before classification (§4.5);
 - `field in <list of scalar literals>` or its `not in` form;
 - a bare `field` (truthiness of a scalar).
+
+**Integer range.** The fragment's integers are those every kernel compares exactly, plus or minus
+2^53 minus 1, the range field definitions default to (§4.5). A table target stores each constant
+and register as a signed 32 bit integer, so its compiler refuses a constant outside that range
+(`int-out-of-i32`) as a target limit, as the eBPF evaluator refuses a program deeper than its stack.
+That is the one place the classifier and a table compiler may disagree, and the conformance drift
+guard pins that it is the only one.
 
 Fields are worker-emitted scalars plus the engine counters `visits` and `error_count`.
 **Excluded** from the fragment: substring `in`, string *ordering*, field-vs-field comparisons,
@@ -177,6 +192,131 @@ and linters SHOULD be able to report fragment membership per edge.
 Predicate evaluation must never raise an arbitrary error out of the engine: an invalid predicate
 is a defined rejection (and a non-matching edge at run time); an impossible comparison follows
 the totality rule. Static validation (`check`) and evaluation accept **the same language**.
+
+### 4.5 Field definitions and the canonical reading
+
+A flow MAY define the fields it routes on in its front matter, one `field.<name>: <definition>` line
+per field. A definition gives the field's kind and, for numbers, what the integer the policy compares
+means. Because definitions are part of the policy text, they are bound into whatever hash or
+signature covers it, so two endpoints holding the same signed policy cannot disagree about scale, unit,
+rounding, range or absence.
+
+```markdown
+---
+name: triage
+field.error_rate: fixed scale=10000 unit=ratio rounding=floor min=0 max=10000
+field.rule_level: int min=0 max=15
+field.armed: bool
+field.label: category absent=allowed
+---
+
+## triage
+-> contain: when error_rate >= 0.85 and rule_level >= 12
+-> unlabeled: when label == None
+-> ignore: when not armed
+-> watch: else
+```
+
+**Binding.** A signed pack built from a defined flow carries the definitions, in one canonical
+spelling, as its manifest's field dictionary, together with the hash of the authored flow text, so the
+signature covers both the interpretation and the image's canonical integers. An envelope compares the
+dictionary entry for entry, so a receiver that declares another scale, unit, rounding, range or absence
+rule refuses the pack.
+
+**Grammar.** A definition is a kind word followed by `option=value` pairs separated by spaces, in any
+order. Each option may appear once. An unknown kind, an unknown option, an option the kind does not
+take, a repeated option, or a value that does not parse makes the whole flow invalid.
+
+| Kind | Canonical value | Options |
+|---|---|---|
+| `int` | an integer | `min`, `max`, `absent` |
+| `fixed` | an integer counting units of `1/scale` | `scale` and `rounding` (both required), `unit`, `min`, `max`, `absent` |
+| `bool` | `true` or `false` | `absent` |
+| `category` | a string | `absent` |
+
+- `scale` is an integer from 1 to 10^9. A `fixed` field with `scale=10000` carries 0.892 as 8920.
+- `rounding` is `floor`, `ceiling` or `exact`. It says how a source value between two grid points
+  becomes canonical, and `exact` refuses such a value instead.
+- `unit` is a free token naming what the value measures. It changes no rule, and it is bound with the
+  rest of the definition.
+- `min` and `max` are integers in canonical units with `min <= max`. They default to the exactly
+  representable range, plus or minus 2^53 minus 1, and may not exceed it.
+- `absent` is `refused` (the default) or `allowed`.
+- `visits` and `error_count` are supplied by the engine and are never defined.
+
+**Decimal thresholds and lowering.** On a `fixed` field every numeric literal the flow compares with
+it is an exact decimal in the field's unit: `error_rate >= 0.85` means 0.85, and `error_rate >= 1`
+means 1.0, not one unit of `1/scale`. Every kernel lowers such literals when it parses the flow,
+replacing each with its canonical integer (`error_rate >= 8500`), so evaluation only ever compares
+integers. A literal that is not a whole number of units of `1/scale`, or that lowers outside
+`[min, max]`, makes the flow invalid. The literal is read from its source text as an exact decimal,
+never through a binary double. Float literals stay outside Level M on every other field, so this adds
+no floating point semantics to the fragment. A kernel that does not implement this section MUST refuse
+any flow that defines its fields, since running one unlowered could compare 8500 with 0.85 and would
+skip the rules below. The JavaScript and Go kernels refuse; the Python reference and the Rust kernel
+implement it, and table targets receive only lowered integers from the compiler.
+
+**Policy rules.** A flow that defines any field is invalid, and no run, codebook, table or pack is
+built from it, unless all of the following hold after lowering.
+
+1. Every deterministic condition is in Level M (§4.3).
+2. Every field a deterministic condition reads is defined, except `visits` and `error_count`. A flow is
+   either fully defined or defines nothing; there is no partly defined policy.
+3. Every atom on a defined field agrees with its kind. An `int` or `fixed` field is compared only with
+   integer constants inside its range, a `bool` field only by truthiness or `==` and `!=` with `True`
+   or `False`, and a `category` field only by truthiness or with string constants through `==`, `!=`,
+   `in` and `not in`.
+4. On a `fixed` field the rounding mode decides which atoms are allowed, because only those survive the
+   conversion from the source value (the lemma below). With `floor`, only `>=` and `<`. With `ceiling`,
+   only `>` and `<=`. With `exact`, every integer atom, including `==`, `!=`, membership and
+   truthiness. Orientation does not matter, since `0.5 <= error_rate` is `error_rate >= 0.5`, and
+   negation needs no rule of its own because each pair is closed under `not`.
+5. `None` appears only as the constant of `==` or `!=`, never in a list, and only on a field whose
+   definition allows absence.
+6. A field whose definition allows absence is tested with `== None` or `!= None` by at least one edge,
+   so the flow states what absence means instead of observing it by accident.
+
+A flow that defines no fields keeps the behavior of the earlier spec: kinds are inferred from the
+constants and readings are accepted by the codec's acceptance rules. That path does not carry the
+canonical guarantee.
+
+**The canonical reading.** A reading of a defined flow is canonical when every defined field the flow
+routes on holds a canonical value of its kind within its range, or is absent and allows absence.
+Missing and `None` are one value, **absent**, because the engine reads both as null (§4.2). Absent is
+never zero, false, the empty string or any other value. Integers compare by value, so an integral
+number written `3.0` is the canonical value 3. A boolean is never a canonical integer, a number is
+never a canonical boolean, and a string that spells a number is never a canonical number. The decision
+boundary refuses a value that is not canonical, naming the field and the reason, and converts nothing.
+
+**The shared conversion.** Turning a source value into a canonical value is done once, by
+`prismpath.kernel.field_definitions.canonical_value`, driven by the signed definition, so no adapter
+carries numeric semantics of its own. A source value may be an integer, an exact decimal, or decimal
+text such as the original token of a JSON number. For a `fixed` field, with `v = x * scale` in exact
+arithmetic, `floor` gives the greatest integer at most `v`, `ceiling` the least integer at least `v`,
+and `exact` gives `v` when it is an integer and refuses it as off the grid otherwise. An integral
+binary double is the integer it holds and is accepted. A double with a fractional part is refused on a
+`fixed` field, because the decimal it was printed from is lost (`0.29 * 100` is 28.999999999999996 in
+IEEE double), so a source that publishes doubles must name its serialized decimal text as the
+authoritative value. A result outside `[min, max]` is refused. Decimal text has at most 28
+significant digits and an exponent of at most 30 in magnitude, so every implementation can compute
+exactly with 128 bit integers. The frozen vectors in `prismpath/portable/conformance/field_definitions.json`
+pin the conversion, the lowering, the policy rules and the canonical boundary for every implementation.
+
+**The conversion lemma (statement).** For an integer `scale > 0`, an integer threshold `k`, and any
+rational `x`:
+
+- `floor(scale * x) >= k` if and only if `x >= k / scale`, and `floor(scale * x) < k` if and only if
+  `x < k / scale`;
+- `ceiling(scale * x) > k` if and only if `x > k / scale`, and `ceiling(scale * x) <= k` if and only if
+  `x <= k / scale`;
+- when `scale * x` is an integer, every comparison of it with `k` agrees with the same comparison of
+  `x` with `k / scale`.
+
+So a policy that obeys rule 4 decides on the canonical value exactly as it would decide on the source
+value against its authored thresholds, and a boolean combination of such atoms does too. The lemma is
+proven in Lean (`formal/FQ/Conversion.lean`, `convert_preserves` and `fixed_policy_preserved`), and
+the decoded reading of a canonical reading, absence included, routing as the original is proven there
+too (`formal/FQ/Absence.lean`).
 
 ## 5. The engine contract
 

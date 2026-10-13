@@ -69,6 +69,15 @@ automatically from the constants:
 A field mixing string and numeric constants is rejected; well formed Level M policies do not produce
 one.
 
+**Defined fields (normative when the policy defines its fields).** A policy that defines its fields
+(`SPEC.md` §4.5) is not inferred from. Each field's kind is its definition's: `int` and `fixed` fields
+are numeric, `bool` fields boolean, `category` fields categorical. Thresholds on `fixed` fields arrive
+already lowered to canonical integers by the parser, so the cut points above are canonical integers. A
+field whose definition allows absence has one more cell, always last, whose representative is the
+absent value itself; no present value falls in it, so absence is never confused with zero, false or a
+string. Every encoder takes only canonical values for such a policy and refuses anything else with the
+field and the reason; a missing field is the absent cell or a refusal, by its definition.
+
 **Guarantee (I1, decision preservation).** Reconstructing *any* representative of each cell and routing
 it through the policy reproduces every decision the original reading produced. This is proven three
 ways in `test_fusion_spiral.py`; it is the property the whole protocol rests on.
@@ -281,8 +290,25 @@ Reference implementation `prismpath/telemetry/receipts.py`; referees
 
 ## 3. Normative invariants
 
-- **I1 (decision preservation).** `reconstruct(quantize(reading))` routes identically to `reading`
-  through the policy. (Proven: `test_fusion_spiral.py`.)
+- **I1 (decision preservation).** For a policy that defines its fields and a canonical reading of it,
+  `reconstruct(quantize(reading))` routes identically to `reading` through the policy, and every
+  reading that is not canonical is refused. For a policy that infers its fields, the same holds for
+  every reading the acceptance rules accept, and every other reading is refused. (Pinned by
+  `test_fusion_spiral.py`, `test_policy_forms.py`, `test_acceptance.py` and `test_defined_fields.py`;
+  proven in Lean for the modeled domain: `decision_preservation` for well typed readings,
+  `contract_a` from raw JSON values through acceptance for well kinded policies, and
+  `reconstructX_route` with absence for defined flows, in `formal/FQ/`.)
+
+  **Status, October 2026.** Every encoder now applies one acceptance rule, and the only conversions
+  left are ones the engine cannot tell apart: an integral number written `5.0` is 5, a boolean on a
+  numeric field is 0 or 1, and 0 or 1 on a boolean field is false or true. Three coercions that could
+  change a decision were removed in acceptance corpus version 2, which marks each changed expectation
+  with its version 1 value: a string that spells an integer on a numeric field was read as the integer,
+  so `"5"` decoded to 5 where the engine compares the string and routes otherwise; the permissive
+  encoder read a boolean field by truthiness, so `"false"` decoded to true; and it read a number on a
+  categorical field as its string or as the other cell. Parsing a source's numbers, booleans and labels
+  is the adapter's job, with the canonical conversion (`SPEC.md` §4.5) for a flow that defines its
+  fields.
 - **I2 (frames itself).** A reading carries no length header and no field tags; decode recovers the
   symbol count from the stream and the field identities from canonical order.
 - **I3 (codebook binding).** A stream is decodable only under the exact signed policy that produced

@@ -1,6 +1,6 @@
 [package]
 name = "prismpath-telemetry-rs"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.82"
 description = "Facet decision-telemetry wire for PrismPath: Figueroa quantization, Zeckendorf coding, and a self-healing Merkle transport."
@@ -10,7 +10,7 @@ keywords = ["telemetry", "quantization", "policy", "merkle", "embedded"]
 categories = ["encoding", "embedded"]
 
 [dependencies]
-prismpath-rs = { path = "../prismpath-rs", version = "0.1.0" }
+prismpath-rs = { path = "../prismpath-rs", version = "0.2.0" }
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"
