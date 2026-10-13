@@ -89,4 +89,3 @@ def test_verify_persisted_distinguishes_structure_from_the_file(tmp_path):
     assert log.verify_log() is True, "the structure in memory is intact"
     assert log.verify_persisted() is False, "the file no longer holds the events"
     assert AuditLog("").verify_persisted() is False, "a log without a path is not evidence"
-

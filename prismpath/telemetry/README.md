@@ -31,7 +31,7 @@ runs lands here.
   it); selective MMR retransmit is multiples cheaper under sparse burst loss. **Margins hold → Phase A
   validates.**
 - ✅ **On a real wire (cross-adapter check)**: the self framing property this codec rests on is
-  measured on a real transport by [`adapters/fusion/bench/wire.py`](https://github.com/crystal-warden/prism-path/blob/40a9b05b3523cb4943b583b77c6fb86f93d795ee/adapters/fusion/bench/wire.py), which
+  measured on a real transport by [`adapters/fusion/bench/wire.py`](https://github.com/crystal-warden/prism-path/blob/a0cccf85e92823b3ec5cc8b102c1420bdf3dfb47/adapters/fusion/bench/wire.py), which
   charges per packet IP/TCP/TLS framing over the full SIEM backlog and recorded IMU sessions. The
   payoff is exactly the self framing one: unbatched, a per decision packet is header bound (110
   B/decision), but because the codec carries no per record framing the header amortizes to ~0 when a
@@ -92,7 +92,7 @@ runs lands here.
 One command answers the adoption question before you touch a Vector config: point it at a policy flow
 and a sample of your real events (NDJSON), and it reports the derived codebook, how many events encode
 cleanly and exactly why the rest do not (missing fields, unmapped nested paths, values a partition
-cannot place, float truncation), the projected bytes per event next to your raw JSON, and how your
+cannot place, fractional readings), the projected bytes per event next to your raw JSON, and how your
 traffic distributes over the flow's routes. Every encodable event is replayed through the full round
 trip (quantize, Fibonacci-code, decode, reconstruct) and checked to route **identically** to the
 original at every decision node, so decision preservation is verified on *your* data. Semantics match
@@ -156,6 +156,21 @@ python prismpath/telemetry/bench/run.py            # Phase A go/no-go -> bench/r
 python prismpath/telemetry/bench/spiral_bench.py   # Tier-6 routing-accuracy gate -> bench/spiral_results.md
 ```
 
+## What a policy may route on
+
+The codec carries a decision only when every deterministic condition in the flow is Level M, because
+only those reduce to cut points on one field at a time. `quantizer.build_partitions` and
+`quantizer::build_partitions` read each condition through the engine's own parse, so a negative
+threshold, a chained range such as `0 < x < 5`, and a constant on the left all contribute their cuts,
+and a boolean constant on a numeric field cuts at 0 or 1 as the engine compares it. Both refuse the
+whole flow, naming every offending condition and its reason, when a condition compares a field with
+another field, orders a string, tests a substring or a runtime collection, uses a float constant, mixes
+strings with numbers on one field, or compares with None. The last is refused because None is how the
+engine reads an absent field, and the codec has no cell for absence yet. Before October 2026 both
+implementations skipped such conditions or dropped such fields, so a decoded reading could take a
+different route from the raw one. The forms are frozen as `conformance/policy_forms.json`, with the
+engine's route for every carried probe, and both test suites replay it.
+
 ## Acceptance: what a reading value may be
 
 One rule set decides what a reading value is, on both sides of the stack, frozen as
@@ -165,17 +180,22 @@ One rule set decides what a reading value is, on both sides of the stack, frozen
 
 | kind | accepted | converted to | refused, with the reason |
 |---|---|---|---|
-| numeric | an integer within the safe range, an integral float, a bool, a string that is an integer literal with an optional sign | the integer; a bool as 0 or 1 | a fraction (`fractional`), any other string (`unparseable_string`), a value at or beyond 2^53 in magnitude, an infinity or NaN (`out_of_range`), a list or object (`wrong_type`), null (`missing`) |
+| numeric | an integer within the safe range, an integral float, a bool | the integer; a bool as 0 or 1 | a fraction (`fractional`), a value at or beyond 2^53 in magnitude, an infinity or NaN (`out_of_range`), any string, list or object (`wrong_type`), null (`missing`) |
 | boolean | a bool, a number exactly 0 or 1 | the bool | any other number, any string, list or object (`wrong_type`), null (`missing`) |
 | categorical | a string | the string | anything else (`wrong_type`), null (`missing`) |
 
-The checked encoders, `wire.encode_reading_checked` and `wire::encode_reading_checked`, refuse a
-refused value with the field and the reason and never truncate, coerce or read it as zero. The
-permissive `symbol` keeps two compatibility behaviors that the corpus pins as well: a fraction
-truncates and a boolean field applies truthiness. It no longer reads a string that is not an
-integer literal as zero on either side; that was a coercion the reference never had. Preflight
-reports `refused_by_field` per field and withholds READY on any refusal, so a sample that
-passes preflight encodes through the checked boundary without a surprise.
+Every encoder, Python and Rust, permissive and checked, applies this one rule, so the encoders
+cannot be told apart: a refused value raises or returns the refusal with the field and the reason,
+and nothing is truncated, parsed, coerced or read as zero. Every conversion in the table is one the
+engine cannot tell apart, so an accepted value takes the route the raw value takes. A fraction is
+refused because truncation moves a reading across a cut (found by the Lean formalization's float
+check, October 2026). A string on a numeric field is refused rather than parsed because the engine
+never orders a string against a number, so `"5"` decoded as 5 routed where the engine would not
+(acceptance corpus version 2, which marks every expectation it changed). Parsing a source's values is
+the adapter's job: Vector's `to_int` in a remap, `int()` in a Python feeder, or, for a flow that
+defines its fields, the canonical conversion of `SPEC.md` §4.5. Preflight reports `refused_by_field`
+per field and withholds READY on any refusal, so a sample that passes preflight encodes without a
+surprise.
 
 ## Durable epochs across a restart
 
@@ -191,4 +211,3 @@ persisted one, persists the new state, and only then deletes, so a replayed ackn
 or after a restart deletes nothing. `tests/test_epoch_journal.py` interrupts sealing,
 acknowledgment and deletion and restarts through each. The memory store stays as it was for
 callers that do not need durability.
-

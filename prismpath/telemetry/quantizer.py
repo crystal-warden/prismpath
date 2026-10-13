@@ -23,10 +23,10 @@ A field mixing kinds (e.g. int and str constants) raises — well-formed Level M
 from __future__ import annotations
 
 import ast
-import re
+import math
 from typing import Optional, Any, Dict, List, Optional, Tuple
 
-from prismpath.kernel import predicates
+from prismpath.kernel import field_definitions, level_m, predicates
 from prismpath.kernel.parser import parse_file  # noqa: F401  (re-exported for callers)
 
 _ORDER = {"Lt": "<", "LtE": "<=", "Gt": ">", "GtE": ">="}
@@ -41,8 +41,10 @@ OTHER_CELL = "\x00__other__"
 # ----------------------------------------------------------------- atom extraction
 def atoms_of(expr_node) -> List[Tuple[str, str, Any]]:
     """Collect (field, op, const) atoms from a predicate AST. `op` in {<,<=,>,>=,==,!=,in,not in,truthy}.
-    `not`/`and`/`or` add no cuts, only recursion. Field-vs-field / non-literal atoms are ignored (they
-    are not Level M and carry no transmittable cut)."""
+    `not`/`and`/`or` add no cuts, only recursion. The AST must already be folded and desugared, as
+    `flow_atoms` does, because a raw `-3` is a unary minus and a raw `0 < x < 5` is one compare with
+    two operators, and this walk reads neither. Any other form yields no atom, which is why
+    `build_partitions` refuses a flow outside Level M before it reads atoms at all."""
     out: List[Tuple[str, str, Any]] = []
     node = expr_node
     if isinstance(node, ast.BoolOp):
@@ -80,32 +82,96 @@ def flow_atoms(graph) -> Dict[str, List[Tuple[str, Any]]]:
         for _target, cond in node.edges:
             if not predicates.is_deterministic(cond) or predicates.is_semantic(cond):
                 continue
-            expr = predicates._expr_of(cond)
-            if expr.lower() in predicates.ALWAYS or expr.lower() in predicates.NEVER:
-                continue
-            try:
-                body = ast.parse(expr, mode="eval").body
-            except SyntaxError:
-                continue
-            for field, op, const in atoms_of(body):
+            for field, op, const in condition_atoms(cond):
                 fields.setdefault(field, []).append((op, const))
     return fields
 
 
+def condition_atoms(cond: str) -> List[Tuple[str, str, Any]]:
+    """The (field, op, const) atoms of one deterministic condition, read from the same parse the engine
+    and the Level M classifier use.
+
+    The engine's parse folds `-3` into a constant, and the classifier's desugar turns a chained
+    comparison into its pairwise conjunction. A plain `ast.parse` did neither, so until October 2026 a
+    negative threshold or a chained range contributed no cut point, every reading on that field decoded
+    to the same cell, and the spiral packer did not see the field at all. A keyword catch all, a non
+    deterministic condition, or one that does not parse has no atoms."""
+    body = predicates.expr_ast(cond)
+    if body is None:
+        return []
+    return atoms_of(level_m._desugar_chains(body))
+
+
 # ----------------------------------------------------------------- per-field partitions
+def numeric_view(value: Any) -> int:
+    """The integer a numeric field compares on: an int, a bool as 0 or 1, or an integral float, each
+    of which the engine compares exactly as that integer. A fraction is refused rather than truncated,
+    because truncation moves a reading across a cut and changes the decision the engine makes on the
+    reading itself (found by the Lean formalization's float check, October 2026). A string is refused
+    rather than parsed, because the engine never orders a string against a number, so `"5"` is not 5
+    to the policy (October 2026, step 3 of the reading boundary plan); parsing belongs to the adapter."""
+    if isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()):
+        raise ValueError(f"{value!r} is fractional or not finite: refused rather than truncated")
+    if isinstance(value, bool) or isinstance(value, (int, float)):
+        return int(value)
+    raise ValueError(f"{value!r} is not a number: refused rather than parsed, the adapter parses")
+
+
 class FieldPartition:
     """An ordered list of decision-cells for one field. `symbol(value)` -> cell index;
     `representative(symbol)` -> a value in that cell that routes identically."""
 
-    def __init__(self, field: str, kind: str, cells: List[dict]):
+    def __init__(self, field: str, kind: str, cells: List[dict], definition=None):
         self.field = field
         self.kind = kind          # "numeric" | "boolean" | "categorical"
         self.cells = cells        # each: {"rep": value, plus kind-specific membership fields}
         self.n = len(cells)
+        # The field's signed definition when the flow defines its fields (SPEC section 4.5), else None.
+        # A defined field takes only canonical values on every path, and one that allows absence has a
+        # last cell of its own for the absent value, distinct from zero, false and every string.
+        self.definition = definition
+        self.absent_symbol = (self.n - 1) if cells and cells[-1].get("absent") else None
 
     def symbol(self, value: Any) -> int:
+        """The cell index of a value, or InputRefused naming the field and the reason. One rule for
+        every encoder: a defined field takes only canonical values, and an inferred field takes what
+        `accept_value` accepts, converted only in ways the engine cannot tell apart (5.0 as 5, a bool
+        on a numeric field as 0 or 1, 0 or 1 on a boolean field as False or True). Until October 2026
+        this permissive path also parsed integer strings, read a boolean field by truthiness, and sent
+        any non string on a categorical field to the other cell, and each of those could change a
+        decision."""
+        if self.definition is not None:
+            return self._defined_symbol(value)
+        reason, converted = accept_value(self.kind, value)
+        if reason is not None:
+            raise InputRefused(self.field, reason, value)
+        return self._inferred_symbol(converted)
+
+    def _defined_symbol(self, value: Any) -> int:
+        """The symbol of a value on a defined field. Nothing is converted: a value that is not canonical
+        for the field's definition is refused, and the absent value has its own cell."""
+        reason, canonical = field_definitions.accept_canonical(self.definition, value)
+        if reason is not None:
+            raise InputRefused(self.field, reason, value)
+        if canonical is None:
+            return self.absent_symbol
+        if self.kind == "categorical":
+            for cell_index, cell in enumerate(self.cells):
+                if cell.get("const") == canonical:
+                    return cell_index
+            return self._other_symbol()
+        return self._inferred_symbol(canonical)
+
+    def _other_symbol(self) -> int:
+        """The categorical cell for every string the flow does not name."""
+        return next(index for index, cell in enumerate(self.cells) if cell.get("const") == OTHER_CELL)
+
+    def _inferred_symbol(self, value: Any) -> int:
         if self.kind == "numeric":
-            integer_value = int(value)
+            try:
+                integer_value = numeric_view(value)
+            except ValueError as error:
+                raise ValueError(f"{self.field}: {error}") from None
             for cell_index, cell in enumerate(self.cells):
                 if ((cell["lo"] is None or integer_value >= cell["lo"])
                         and (cell["hi"] is None or integer_value <= cell["hi"])):
@@ -117,20 +183,15 @@ class FieldPartition:
         for cell_index, cell in enumerate(self.cells):
             if cell.get("const", OTHER_CELL) == value:
                 return cell_index
-        return self.n - 1                     # the trailing "other" cell
+        return self._other_symbol()
 
     def representative(self, symbol: int) -> Any:
         return self.cells[symbol]["rep"]
 
     def checked_symbol(self, value: Any) -> int:
-        """`symbol` behind acceptance: the value is accepted and converted by `accept_value`
-        or the call raises InputRefused naming the field and the reason. This is the runtime
-        boundary a library consumer should encode through; `symbol` keeps its permissive behavior
-        for compatibility (truncated fractions, truthiness on boolean fields)."""
-        reason, converted = accept_value(self.kind, value)
-        if reason is not None:
-            raise InputRefused(self.field, reason, value)
-        return self.symbol(converted)
+        """`symbol`, kept under its earlier name: since October 2026 the two paths share one
+        acceptance rule, so there is no permissive behavior left to opt out of."""
+        return self.symbol(value)
 
 
 # ------------------------------------------------------------------ acceptance
@@ -143,7 +204,6 @@ REFUSAL_WRONG_TYPE = "wrong_type"
 REFUSAL_UNPARSEABLE_STRING = "unparseable_string"
 REFUSAL_FRACTIONAL = "fractional"
 REFUSAL_OUT_OF_RANGE = "out_of_range"
-_INTEGER_LITERAL = re.compile(r"^[+-]?[0-9]+$")
 
 
 class InputRefused(ValueError):
@@ -159,11 +219,12 @@ class InputRefused(ValueError):
 def accept_value(kind: str, value: Any) -> Tuple[Optional[str], Any]:
     """(refusal reason, converted value) for one field kind. None as the reason means accepted.
 
-    numeric accepts an int within the safe range, an integral float, a bool as 0 or 1, and a
-    string that is an integer literal with an optional sign. A fractional number is refused rather
-    than truncated, a string that is not an integer literal is refused rather than read as zero,
-    and null is missing. boolean accepts a bool and a number exactly 0 or 1. categorical accepts a
-    string only. Anything else is the wrong type."""
+    numeric accepts an int within the safe range, an integral float, and a bool as 0 or 1. A
+    fractional number is refused rather than truncated, a string is the wrong type rather than parsed
+    (the engine never orders a string against a number, so accepting `"5"` as 5 changed decisions;
+    the adapter parses), and null is missing. boolean accepts a bool and a number exactly 0 or 1.
+    categorical accepts a string only. Anything else is the wrong type. Every conversion that remains
+    is one the engine cannot tell apart, so an accepted value decides as the raw value would."""
     if value is None:
         return REFUSAL_MISSING, None
     if kind == "numeric":
@@ -176,10 +237,6 @@ def accept_value(kind: str, value: Any) -> Tuple[Optional[str], Any]:
                 return REFUSAL_OUT_OF_RANGE, None
             if value != int(value):
                 return REFUSAL_FRACTIONAL, None
-            integer_value = int(value)
-        elif isinstance(value, str):
-            if not _INTEGER_LITERAL.match(value):
-                return REFUSAL_UNPARSEABLE_STRING, None
             integer_value = int(value)
         else:
             return REFUSAL_WRONG_TYPE, None
@@ -197,14 +254,25 @@ def accept_value(kind: str, value: Any) -> Tuple[Optional[str], Any]:
     return REFUSAL_WRONG_TYPE, None
 
 
+def boundary_refusal(partition: "FieldPartition", value: Any) -> Optional[str]:
+    """The reason the runtime boundary refuses this value for this field, or None when it accepts it.
+    A defined field is judged by its definition, an inferred field by its kind's acceptance rules, so
+    a preflight that asks this predicts the checked encoder exactly."""
+    if partition.definition is not None:
+        reason, _value = field_definitions.accept_canonical(partition.definition, value)
+        return reason
+    reason, _converted = accept_value(partition.kind, value)
+    return reason
+
+
 def checked_quantize(parts: Dict[str, "FieldPartition"], reading: Dict[str, Any]) -> Dict[str, int]:
     """`quantize` behind acceptance: every decision field present and accepted, or
     InputRefused names the first field that is not."""
     symbols = {}
     for field in sorted(parts):
-        if field not in reading:
+        if field not in reading and parts[field].definition is None:
             raise InputRefused(field, REFUSAL_MISSING, None)
-        symbols[field] = parts[field].checked_symbol(reading[field])
+        symbols[field] = parts[field].checked_symbol(reading.get(field))
     return symbols
 
 
@@ -251,7 +319,9 @@ def _numeric_partition(field: str, atoms: List[Tuple[str, Any]]) -> FieldPartiti
             for member in const:
                 if isinstance(member, float):
                     _refuse_float(member)
-                if isinstance(member, int) and not isinstance(member, bool):
+                # A boolean member is a cut at 0 or 1, because the engine compares `1 in [True]` as
+                # true. Skipping it, as the first version did, merged 1 with its neighbors.
+                if isinstance(member, int):
                     consts_set.add(int(member))
         elif op == "truthy":
             consts_set.add(0)
@@ -313,11 +383,19 @@ def _classify_kind(atoms: List[Tuple[str, Any]]) -> str:
     for value in flat:
         if isinstance(value, float):
             _refuse_float(value)
+        if value is None:
+            # The engine reads a missing field as None, so `x == None` is a test for absence. The codec
+            # has no cell for absence yet: the permissive path put None in the false cell of a boolean
+            # field, where it decoded to False and missed the edge the raw reading took. Refused until
+            # the canonical reading gives absence an explicit cell.
+            raise ValueError("a comparison with None tests for an absent field, and the codec does not "
+                             "carry absence yet")
     has_str = any(isinstance(value, str) for value in flat)
     has_bool = any(isinstance(value, bool) for value in flat)
     has_int = any(isinstance(value, int) and not isinstance(value, bool) for value in flat)
-    if has_str and (has_int):
-        raise ValueError("field mixes string and numeric constants — not a Level M field")
+    if has_str and (has_int or has_bool):
+        # A boolean counts as a number here because the engine compares it as 0 or 1.
+        raise ValueError("field mixes string and numeric constants, which is not a Level M field")
     if has_str:
         return "categorical"
     if has_int:
@@ -327,11 +405,43 @@ def _classify_kind(atoms: List[Tuple[str, Any]]) -> str:
     return "boolean"                          # only "truthy" seen
 
 
+def conditions_outside_level_m(graph) -> List[Tuple[str, str, str]]:
+    """Every deterministic, non semantic condition in the flow that is not Level M, as (node, condition,
+    reason code). The codec carries a decision only for Level M conditions, because only those reduce
+    to per field cut points. A field compared to another field, or a string ordered against a
+    constant, depends on values the partition does not keep, so a decoded reading can route where the
+    raw reading would not."""
+    outside: List[Tuple[str, str, str]] = []
+    for name, node in graph.nodes.items():
+        for _target, cond in node.edges:
+            if not predicates.is_deterministic(cond) or predicates.is_semantic(cond):
+                continue
+            member, reason = level_m.is_level_m(cond)
+            if not member:
+                outside.append((name, cond, reason or "not-level-m"))
+    return outside
+
+
 def build_partitions(graph) -> Dict[str, FieldPartition]:
-    """Per decision-relevant field, the coarsest partition that preserves every routing decision."""
+    """Per decision-relevant field, the coarsest partition that preserves every routing decision.
+
+    A flow with a deterministic condition outside Level M is refused rather than partitioned. Before
+    October 2026 such a condition was skipped, which left its fields out of the partition or kept only
+    some of their cuts, and the decoded reading took a different route from the raw one."""
+    atoms_by_field = flow_atoms(graph)
+    if getattr(graph, "fields", None):
+        return _defined_partitions(graph, atoms_by_field)
+    # Classify first so a float threshold or a field mixing strings and numbers is refused with the
+    # message that names it, rather than the generic reason code the Level M check gives the same edge.
+    kinds = {field: _classify_kind(atoms) for field, atoms in atoms_by_field.items()}
+    outside = conditions_outside_level_m(graph)
+    if outside:
+        listed = "; ".join(f"{name}: {cond!r} ({reason})" for name, cond, reason in outside)
+        raise ValueError(f"the flow routes on conditions outside Level M, which the codec cannot "
+                         f"carry: {listed}")
     parts: Dict[str, FieldPartition] = {}
-    for field, atoms in flow_atoms(graph).items():
-        kind = _classify_kind(atoms)
+    for field, atoms in atoms_by_field.items():
+        kind = kinds[field]
         if kind == "numeric":
             parts[field] = _numeric_partition(field, atoms)
         elif kind == "categorical":
@@ -341,11 +451,50 @@ def build_partitions(graph) -> Dict[str, FieldPartition]:
     return parts
 
 
+_KIND_OF_DEFINITION = {
+    field_definitions.KIND_INT: "numeric",
+    field_definitions.KIND_FIXED: "numeric",
+    field_definitions.KIND_BOOL: "boolean",
+    field_definitions.KIND_CATEGORY: "categorical",
+}
+
+
+def _defined_partitions(graph, atoms_by_field) -> Dict[str, FieldPartition]:
+    """The partitions of a flow that defines its fields. The parser has already lowered every decimal
+    threshold and refused any rule the definitions forbid, so each field's kind is its definition's,
+    never an inference from its constants. A comparison with None is the test for absence: it is constant
+    across every present value, so it adds no cut, and a field that allows absence gets one more cell
+    whose representative is the absent value itself. The engine counters keep the inferred partition."""
+    parts: Dict[str, FieldPartition] = {}
+    for field, atoms in atoms_by_field.items():
+        definition = graph.fields.get(field)
+        if definition is None:
+            kind = _classify_kind(atoms)
+            builder = {"numeric": _numeric_partition, "categorical": _categorical_partition}.get(kind)
+            parts[field] = builder(field, atoms) if builder else _boolean_partition(field)
+            continue
+        present_atoms = [(op, const) for op, const in atoms if const is not None or op == "truthy"]
+        kind = _KIND_OF_DEFINITION[definition.kind]
+        if kind == "numeric":
+            built = _numeric_partition(field, present_atoms)
+        elif kind == "categorical":
+            built = _categorical_partition(field, present_atoms)
+        else:
+            built = _boolean_partition(field)
+        cells = list(built.cells)
+        if definition.absent_allowed:
+            cells.append({"rep": None, "absent": True})
+        parts[field] = FieldPartition(field, kind, cells, definition)
+    return parts
+
+
 # ----------------------------------------------------------------- quantize / reconstruct
 def quantize(parts: Dict[str, FieldPartition], reading: Dict[str, Any]) -> Dict[str, int]:
     """A reading -> one small symbol per decision-relevant field (fields the flow never routes on are
-    dropped: they cannot change any decision)."""
-    return {field: partition.symbol(reading[field]) for field, partition in parts.items() if field in reading}
+    dropped: they cannot change any decision). A defined field missing from the reading is the absent
+    value, encoded as its own cell or refused by its definition; an inferred field missing is skipped."""
+    return {field: partition.symbol(reading.get(field)) for field, partition in parts.items()
+            if field in reading or partition.definition is not None}
 
 
 def reconstruct(parts: Dict[str, FieldPartition], symbols: Dict[str, int]) -> Dict[str, Any]:

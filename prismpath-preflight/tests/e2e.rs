@@ -98,26 +98,25 @@ fn acceptance_refusal_is_surfaced_and_blocks_ready() {
     let rep = report(&out);
     assert_eq!(rep["encoded"], 1);
     assert_eq!(rep["out_of_partition"]["temp"], 1);
-    assert_eq!(rep["refused_by_field"]["temp"]["unparseable_string"], 1);
+    assert_eq!(rep["refused_by_field"]["temp"]["wrong_type"], 1);   // unparseable_string until corpus v2
     assert!(rep.get("coerced_to_zero_by_field").is_none());
     assert_eq!(rep["ready"], false);
 }
 
 #[test]
-fn float_truncation_counted_and_null_is_missing() {
-    // The permissive encoder still truncates 49.9 to 49 and the report counts it, but the input
-    // contract refuses a fraction, so the sample is not READY: the checked encoder would refuse it.
+fn a_fraction_is_refused_not_truncated_and_null_is_missing() {
     let (flow, sample, out) = setup("trunc", &[
-        r#"{"temp": 49.9, "armed": true}"#,          // truncates to 49 for the permissive path, refused by the contract
+        r#"{"temp": 49.9, "armed": true}"#,          // refused as fractional, never truncated to 49
         r#"{"temp": null, "armed": true}"#]);        // JSON null = missing, as in the codec
     let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
                   "--on-missing", "skip", "--json", out.to_str().unwrap()]);
-    assert_eq!(result.status.code(), Some(1));
+    assert_eq!(result.status.code(), Some(1), "a fraction is refused by acceptance");
     let rep = report(&out);
-    assert_eq!(rep["float_truncated_by_field"]["temp"], 1);
+    assert!(rep.get("float_truncated_by_field").is_none());
     assert_eq!(rep["refused_by_field"]["temp"]["fractional"], 1);
     assert_eq!(rep["missing_by_field"]["temp"], 1);
-    assert_eq!(rep["route_distribution"]["classify"]["ok"], 1);
+    assert_eq!(rep["out_of_partition"]["temp"], 1, "the encoder cannot place it, as for any refused value");
+    assert_eq!(rep["encoded"], 0, "the fractional reading is not encoded under a truncated value");
     assert_eq!(rep["ready"], false);
 }
 
@@ -138,4 +137,39 @@ fn no_decision_fields_flow_fails_loud() {
 fn bad_usage_exits_two() {
     let result = run(&["only-one-arg"]);
     assert_eq!(result.status.code(), Some(2));
+}
+
+const DEFINED_FLOW: &str = "---
+name: defined_guard
+start: classify
+field.load: fixed scale=100 unit=ratio rounding=floor min=0 max=100
+field.zone: category absent=allowed
+---
+## classify
+-> critical: when load >= 0.9
+-> unzoned: when zone == None
+-> warn: when load >= 0.5 and zone == \"a\"
+-> ok: else
+## critical
+## unzoned
+## warn
+## ok
+";
+
+#[test]
+fn a_defined_flow_is_judged_by_its_definitions() {
+    // The twin of the Python test of the same name: a numeric string is refused rather than parsed,
+    // a fraction is refused, and an absent zone is a routed value, not a missing field.
+    let (flow, sample, out) = setup("defined", &[
+        r#"{"load": 95, "zone": "a"}"#, r#"{"load": 60}"#, r#"{"load": 60, "zone": null}"#,
+        r#"{"load": 60, "zone": "a"}"#, r#"{"load": "60", "zone": "a"}"#, r#"{"load": 60.5, "zone": "a"}"#]);
+    std::fs::write(&flow, DEFINED_FLOW).unwrap();
+    let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(), "--json", out.to_str().unwrap()]);
+    assert_eq!(result.status.code(), Some(1), "{}", String::from_utf8_lossy(&result.stdout));
+    let rep = report(&out);
+    assert_eq!(rep["refused_by_field"], serde_json::json!({"load": {"wrong_type": 1, "fractional": 1}}));
+    assert!(rep.get("missing_by_field").is_none_or(|missing| missing.as_object().is_none_or(|map| map.is_empty())));
+    assert_eq!(rep["encoded"], 4);
+    assert_eq!(rep["route_mismatches"], serde_json::json!([]));
+    assert_eq!(rep["ready"], false);
 }

@@ -161,7 +161,6 @@ def test_version_floor_persists_across_restart(env):
     swap_result = host2.swap(_pack(env, "v2", 2))                  # below the persisted floor
     assert not swap_result["ok"] and any("version:not-monotonic" in reason for reason in swap_result["reasons"])
 
-
 def _events(host, action):
     return [event for event in host.audit.events if event["action"] == action]
 
@@ -227,7 +226,6 @@ def test_a_floor_below_the_intent_is_not_admitted_twice(env):
     assert not again["ok"] and any("version:not-monotonic" in reason for reason in again["reasons"])
 
 
-
 def test_active_policy_survives_a_new_host(env):
     """The process that swapped is not the only one that knows what is active: `swap attest` and the
     console each build a fresh host over the state directory and must report the committed policy."""
@@ -252,6 +250,19 @@ def test_a_tampered_active_image_is_not_restored(env):
     last = AuditLog(str(env["tmp"] / "state" / "swaps.log")).events[-1]
     assert last["action"] == "active_unreadable"
     assert last["data"] == {"to_hash": accepted["active"], "reason": "image:digest-mismatch", "result": "not_restored"}
+
+
+def test_a_record_that_is_not_an_object_is_not_restored(env):
+    """A record that parses but is not an object, with its image gone too, must still get the audited
+    fail closed answer at start rather than an exception from reading a field off a list."""
+    state = env["tmp"] / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "active_policy.json").write_text('["not", "an", "object"]')
+    host = _host(env)
+    assert host.active() == {"active": None}
+    last = AuditLog(str(state / "swaps.log")).events[-1]
+    assert last["action"] == "active_unreadable"
+    assert last["data"] == {"reason": "record:not-an-object", "result": "not_restored"}
 
 
 def test_rollback_is_what_a_new_host_restores(env):

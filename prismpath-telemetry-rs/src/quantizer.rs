@@ -2,13 +2,10 @@
 // Copyright 2026 Crystal Warden Supply Chain Labs LLC
 //! Decision-preserving quantizer — the differentiator.
 
-use prismpath_rs::{Graph, V};
+use prismpath_rs::{accept_canonical, DefinedKind, FieldDefinition, Graph, Value, V};
 use std::collections::HashMap;
 
 pub const OTHER: &str = "\x00__other__";
-
-const ALWAYS: &[&str] = &["always", "true", "else", "otherwise", "default", "_"];
-const NEVER: &[&str] = &["false", "never"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AtomConst {
@@ -80,23 +77,67 @@ pub struct FieldPartition {
     pub kind: FieldKind,
     pub cells: Vec<Cell>,
     pub n: usize,
+    /// The field's signed definition when the flow defines its fields (SPEC section 4.5). A defined
+    /// field takes only canonical values on every path, permissive included.
+    pub definition: Option<FieldDefinition>,
+    /// The index of the absent cell, always the last, when the definition allows absence. No present
+    /// value falls in it, so absence is never zero, false or a string.
+    pub absent_symbol: Option<usize>,
 }
 
 impl FieldPartition {
     pub fn new(field: String, kind: FieldKind, cells: Vec<Cell>) -> Self {
         let n = cells.len();
-        FieldPartition { field, kind, cells, n }
+        FieldPartition { field, kind, cells, n, definition: None, absent_symbol: None }
+    }
+
+    /// A partition for a defined field: the inferred cells of its kind, plus the absent cell when the
+    /// definition allows absence.
+    fn defined(built: FieldPartition, definition: FieldDefinition) -> Self {
+        let mut cells = built.cells;
+        let absent_symbol = if definition.absent_allowed {
+            cells.push(Cell { lo: None, hi: None, const_val: None, rep: V::Null });
+            Some(cells.len() - 1)
+        } else {
+            None
+        };
+        let n = cells.len();
+        FieldPartition { field: built.field, kind: built.kind, cells, n, definition: Some(definition), absent_symbol }
+    }
+
+    /// The cells a present value can fall in: every cell but the absent one.
+    fn present_cells(&self) -> usize {
+        self.n - usize::from(self.absent_symbol.is_some())
+    }
+
+    /// The symbol of a value on a defined field, or the refusal reason. Nothing is converted.
+    fn defined_symbol(&self, definition: &FieldDefinition, value: &V) -> Result<usize, &'static str> {
+        let canonical = accept_canonical(definition, value)?;
+        if matches!(canonical, V::Null) {
+            return self.absent_symbol.ok_or(prismpath_rs::field_definitions::REFUSAL_MISSING);
+        }
+        self.present_symbol(&canonical).map_err(|_| prismpath_rs::field_definitions::REFUSAL_OUT_OF_RANGE)
     }
 
     /// The cell index a value falls in. `Err` only for a value outside every cell of a numeric
     /// partition — unreachable for partitions built by `build_partitions` (open ends), but a
     /// hand-constructed partition can bound both ends, and a library consumer (e.g. a Vector
     /// codec) must never be able to panic the encoder.
+    /// The cell index of a value, or the refusal naming the field and the reason. One rule for every
+    /// encoder, the twin of quantizer.py `symbol`: a defined field takes only canonical values, and an
+    /// inferred field takes what `accept_value` accepts, converted only in ways the engine cannot tell
+    /// apart. Until October 2026 this permissive path also parsed integer strings, read a boolean field
+    /// by truthiness, and turned a number on a categorical field into its string, and each of those
+    /// could change a decision.
     pub fn symbol(&self, value: &V) -> Result<usize, String> {
+        self.checked_symbol(value).map_err(|error| format!("{error} ({value:?})"))
+    }
+
+    fn present_symbol(&self, value: &V) -> Result<usize, String> {
         match self.kind {
             FieldKind::Numeric => {
                 let number = v_to_i64(value)?;
-                for (index, cell) in self.cells.iter().enumerate() {
+                for (index, cell) in self.cells.iter().enumerate().take(self.present_cells()) {
                     let lo_ok = cell.lo.is_none_or(|low| number >= low);
                     let hi_ok = cell.hi.is_none_or(|high| number <= high);
                     if lo_ok && hi_ok {
@@ -109,15 +150,17 @@ impl FieldPartition {
                 Ok(if prismpath_rs::py_truthy(value) { 1 } else { 0 })
             }
             FieldKind::Categorical => {
-                let text = v_to_str(value);
-                for (index, cell) in self.cells.iter().enumerate() {
+                let V::Str(text) = value else {
+                    return Err(format!("{}={:?} is not a string", self.field, value));
+                };
+                for (index, cell) in self.cells.iter().enumerate().take(self.present_cells()) {
                     if let Some(ref constant) = cell.const_val {
-                        if constant == &text {
+                        if constant == text {
                             return Ok(index);
                         }
                     }
                 }
-                Ok(self.n - 1) // trailing "other" cell
+                Ok(self.present_cells() - 1) // the "other" cell, last of the present cells
             }
         }
     }
@@ -130,22 +173,28 @@ impl FieldPartition {
     /// or the error names the field and the reason. Encode through this at a runtime boundary;
     /// `symbol` keeps its permissive numeric view for compatibility.
     pub fn checked_symbol(&self, value: &V) -> Result<usize, AcceptanceError> {
+        if let Some(definition) = &self.definition {
+            return self.defined_symbol(definition, value)
+                .map_err(|reason| AcceptanceError { field: self.field.clone(), refusal: InputRefusal::from_reason(reason) });
+        }
         let converted = accept_value(&self.kind, value)
             .map_err(|refusal| AcceptanceError { field: self.field.clone(), refusal })?;
-        self.symbol(&converted)
+        self.present_symbol(&converted)
             .map_err(|_| AcceptanceError { field: self.field.clone(), refusal: InputRefusal::OutOfRange })
     }
 }
 
-/// The permissive numeric view `symbol` keeps for compatibility: a fraction truncates, a bool is
-/// 0 or 1. A string that is not an integer literal and a null are errors, never zero; reading them
-/// as zero was a silent coercion the reference never had, and a preflight that passed could not
-/// predict it.
+/// The integer an accepted numeric value compares as: an integral number, or a bool as 0 or 1. A
+/// fraction or a non finite number is an error, never truncated: `as i64` truncates toward zero,
+/// which moves a reading across a cut (-0.5 against `x < 0`, 3.5 against `x == 3`) and changes the
+/// decision (the Lean formalization's float check, October 2026). A string is an error rather than
+/// parsed, since the engine never orders a string against a number; parsing belongs to the adapter.
 fn v_to_i64(value: &V) -> Result<i64, String> {
     match value {
+        V::Num(number) if !number.is_finite() || number.fract() != 0.0 =>
+            Err(format!("{number} is fractional or not finite: refused rather than truncated")),
         V::Num(number) => Ok(*number as i64),
         V::Bool(flag) => Ok(if *flag { 1 } else { 0 }),
-        V::Str(text) => text.parse::<i64>().map_err(|_| format!("{text:?} is not an integer literal")),
         other => Err(format!("{other:?} is not a number")),
     }
 }
@@ -165,6 +214,18 @@ pub enum InputRefusal {
 }
 
 impl InputRefusal {
+    /// The refusal a canonical boundary reason names. The boundary only ever gives the four reasons
+    /// below; any other would be a bug, and it reads as wrong_type rather than as an acceptance.
+    pub fn from_reason(reason: &str) -> InputRefusal {
+        match reason {
+            "missing" => InputRefusal::Missing,
+            "fractional" => InputRefusal::Fractional,
+            "out_of_range" => InputRefusal::OutOfRange,
+            "unparseable_string" => InputRefusal::UnparseableString,
+            _ => InputRefusal::WrongType,
+        }
+    }
+
     /// The reason string shared with the Python side and the preflight reports.
     pub fn reason(&self) -> &'static str {
         match self {
@@ -196,18 +257,14 @@ impl std::fmt::Display for AcceptanceError {
     }
 }
 
-fn integer_literal(text: &str) -> bool {
-    let digits = text.strip_prefix('+').or_else(|| text.strip_prefix('-')).unwrap_or(text);
-    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-}
-
 /// Acceptance for one field kind: the converted value, or the refusal.
 ///
-/// numeric accepts an integer within the safe range, an integral float, a bool as 0 or 1, and a
-/// string that is an integer literal with an optional sign; a fraction is refused rather than
-/// truncated, another string is refused rather than read as zero, null is missing. boolean accepts
-/// a bool and a number exactly 0 or 1. categorical accepts a string only. Anything else is the
-/// wrong type. Python's `accept_value` is the same function; the inputs corpus pins both.
+/// numeric accepts an integer within the safe range, an integral float, and a bool as 0 or 1; a
+/// fraction is refused rather than truncated, a string is the wrong type rather than parsed (since
+/// October 2026; accepting `"5"` as 5 routed it where the engine would not), and null is missing.
+/// boolean accepts a bool and a number exactly 0 or 1. categorical accepts a string only. Anything
+/// else is the wrong type. Every remaining conversion is one the engine cannot tell apart. Python's
+/// `accept_value` is the same function; the inputs corpus pins both.
 pub fn accept_value(kind: &FieldKind, value: &V) -> Result<V, InputRefusal> {
     if matches!(value, V::Null) {
         return Err(InputRefusal::Missing);
@@ -224,13 +281,6 @@ pub fn accept_value(kind: &FieldKind, value: &V) -> Result<V, InputRefusal> {
                         return Err(InputRefusal::Fractional);
                     }
                     *number
-                }
-                V::Str(text) => {
-                    if !integer_literal(text) {
-                        return Err(InputRefusal::UnparseableString);
-                    }
-                    // A literal that overflows f64 parsing is out of range, not unparseable.
-                    text.parse::<f64>().map_err(|_| InputRefusal::OutOfRange)?
                 }
                 _ => return Err(InputRefusal::WrongType),
             };
@@ -261,33 +311,37 @@ pub fn checked_quantize(
     fields.sort();
     let mut out = HashMap::new();
     for field in fields {
-        let value = reading.get(field).ok_or_else(|| AcceptanceError { field: field.clone(), refusal: InputRefusal::Missing })?;
+        // A defined field missing from the reading is the absent value, which its definition carries
+        // or refuses; an inferred field missing is refused here.
+        let value = match reading.get(field) {
+            Some(value) => value,
+            None if parts[field].definition.is_some() => &V::Null,
+            None => return Err(AcceptanceError { field: field.clone(), refusal: InputRefusal::Missing }),
+        };
         out.insert(field.clone(), parts[field].checked_symbol(value)?);
     }
     Ok(out)
 }
 
-fn v_to_str(value: &V) -> String {
-    match value {
-        V::Str(text) => text.clone(),
-        V::Num(number) => number.to_string(),
-        V::Bool(flag) => if *flag { "True".to_string() } else { "False".to_string() },
-        _ => String::new(),
+/// The integer a constant compares as on a numeric field. A boolean is 0 or 1, because the engine
+/// compares `1 == True` as true. Until October 2026 a boolean constant read as 0 here and added no cut
+/// point, so `x == True` beside `x > 5` merged 1 into the cell of 0 and routed it the other way.
+fn numeric_constant(constant: &AtomConst) -> Option<i64> {
+    match constant {
+        AtomConst::Num(number) => Some(*number),
+        AtomConst::Bool(flag) => Some(i64::from(*flag)),
+        _ => None,
     }
 }
 
 fn atom_true(op: &str, const_val: &AtomConst, reading_value: i64) -> bool {
-    let constant = match const_val {
-        AtomConst::Num(number) => *number,
-        _ => 0,
-    };
+    let constant = numeric_constant(const_val).unwrap_or_default();
     // `in` / `not in` over a numeric list: membership of the value in the list's integers. The
     // first version returned false for both, so list atoms never influenced the merge (September
     // 2026, found by the Lean formalization of I1 alongside the missing cut points below).
     let in_list = || match const_val {
-        AtomConst::List(members) => members.iter().any(|member| matches!(member, AtomConst::Num(number) if *number == reading_value)),
-        AtomConst::Num(number) => *number == reading_value,
-        _ => false,
+        AtomConst::List(members) => members.iter().any(|member| numeric_constant(member) == Some(reading_value)),
+        single => numeric_constant(single) == Some(reading_value),
     };
     match op {
         "<" => reading_value < constant,
@@ -311,7 +365,7 @@ fn numeric_partition(field: &str, atoms: &[Atom]) -> FieldPartition {
     for atom in atoms {
         match atom.op.as_str() {
             "<" | "<=" | ">" | ">=" | "==" | "!=" => {
-                if let AtomConst::Num(number) = atom.const_val {
+                if let Some(number) = numeric_constant(&atom.const_val) {
                     if !const_set.contains(&number) {
                         const_set.push(number);
                     }
@@ -319,7 +373,7 @@ fn numeric_partition(field: &str, atoms: &[Atom]) -> FieldPartition {
             }
             "in" | "not in" => {
                 for member in atom.const_val.flat_consts() {
-                    if let AtomConst::Num(number) = member {
+                    if let Some(number) = numeric_constant(&member) {
                         if !const_set.contains(&number) {
                             const_set.push(number);
                         }
@@ -433,11 +487,20 @@ fn classify_kind(atoms: &[Atom]) -> Result<FieldKind, String> {
             flat.extend(atom.const_val.flat_consts());
         }
     }
+    if flat.iter().any(|member| matches!(member, AtomConst::None)) {
+        // The engine reads a missing field as None, so `x == None` tests for absence, and the codec
+        // has no cell for absence yet. Before October 2026 the token scanner read `None` as a second
+        // field, so every reading was refused for lacking it. Refused until the canonical reading
+        // gives absence an explicit cell; quantizer.py refuses the same constant.
+        return Err("a comparison with None tests for an absent field, and the codec does not carry absence yet".to_string());
+    }
     let has_str = flat.iter().any(|member| member.is_str());
     let has_num = flat.iter().any(|member| member.is_num());
+    let has_bool = flat.iter().any(|member| member.is_bool());
 
-    if has_str && has_num {
-        return Err("field mixes string and numeric constants — not a Level M field".to_string());
+    // A boolean counts as a number here because the engine compares it as 0 or 1.
+    if has_str && (has_num || has_bool) {
+        return Err("field mixes string and numeric constants, which is not a Level M field".to_string());
     }
     if has_str {
         Ok(FieldKind::Categorical)
@@ -448,299 +511,130 @@ fn classify_kind(atoms: &[Atom]) -> Result<FieldKind, String> {
     }
 }
 
-// ----------------------------------------------------------------- Condition Atom Parser
-#[derive(Debug, Clone)]
-enum Tok {
-    Ident(String),
-    Num(i64),
-    Str(String),
-    Bool(bool),
-    Op(String),
+// ----------------------------------------------------------------- Condition atoms
+/// The atoms of one condition, read from the engine's own parse through `prismpath_rs::level_m_atoms`,
+/// or the Level M reason code it cannot be carried. Until October 2026 this crate scanned the
+/// condition's tokens itself, and it read `0 < x < 5` as `x > 0` alone, `True == x` as a bare `x`,
+/// `2.5` as `2`, and `None` as a field named None, so the partition dropped or invented cut points
+/// without saying so. A keyword catch all has no atoms.
+pub fn condition_atoms(cond: &str) -> Result<Vec<Atom>, String> {
+    prismpath_rs::level_m_atoms(cond)?
+        .into_iter()
+        .map(|atom| {
+            Ok(Atom { field: atom.field, op: atom.op, const_val: atom_constant(&atom.constant)? })
+        })
+        .collect()
 }
 
-fn tokenize_cond(src: &str) -> Vec<Tok> {
-    let mut toks = Vec::new();
-    let chars: Vec<char> = src.chars().collect();
-    let mut cursor = 0;
-    while cursor < chars.len() {
-        let character = chars[cursor];
-        if character.is_whitespace() {
-            cursor += 1;
-            continue;
-        }
-        if character == '\'' || character == '"' {
-            let quote = character;
-            cursor += 1;
-            let mut text = String::new();
-            while cursor < chars.len() && chars[cursor] != quote {
-                text.push(chars[cursor]);
-                cursor += 1;
-            }
-            if cursor < chars.len() {
-                cursor += 1;
-            }
-            toks.push(Tok::Str(text));
-            continue;
-        }
-        if character == '-' || character.is_ascii_digit() {
-            let start = cursor;
-            if character == '-' {
-                cursor += 1;
-            }
-            while cursor < chars.len() && chars[cursor].is_ascii_digit() {
-                cursor += 1;
-            }
-            if cursor > start && (start != cursor - 1 || chars[start] != '-') {
-                let text: String = chars[start..cursor].iter().collect();
-                if let Ok(number) = text.parse::<i64>() {
-                    toks.push(Tok::Num(number));
-                    continue;
-                }
-            }
-            cursor = start;
-        }
-        if character.is_alphabetic() || character == '_' {
-            let start = cursor;
-            while cursor < chars.len() && (chars[cursor].is_alphanumeric() || chars[cursor] == '_') {
-                cursor += 1;
-            }
-            let text: String = chars[start..cursor].iter().collect();
-            match text.as_str() {
-                "True" => toks.push(Tok::Bool(true)),
-                "False" => toks.push(Tok::Bool(false)),
-                "and" | "or" | "not" | "in" => toks.push(Tok::Op(text)),
-                _ => toks.push(Tok::Ident(text)),
-            }
-            continue;
-        }
-        if cursor + 1 < chars.len() {
-            let two: String = chars[cursor..cursor + 2].iter().collect();
-            if matches!(two.as_str(), "==" | "!=" | "<=" | ">=") {
-                toks.push(Tok::Op(two));
-                cursor += 2;
-                continue;
+fn atom_constant(value: &Value) -> Result<AtomConst, String> {
+    match value {
+        Value::Null => Ok(AtomConst::None),
+        Value::Bool(flag) => Ok(AtomConst::Bool(*flag)),
+        Value::Num(number) => {
+            // Level M admits only integer literals, so a fraction cannot reach this point. An integer
+            // past the i64 range can, and it is refused rather than saturated onto the wrong cut.
+            let in_range = *number >= i64::MIN as f64 && *number < i64::MAX as f64;
+            if number.is_finite() && number.fract() == 0.0 && in_range {
+                Ok(AtomConst::Num(*number as i64))
+            } else {
+                Err(format!("constant {number} is not an integer the codec can compare"))
             }
         }
-        if matches!(character, '<' | '>') {
-            toks.push(Tok::Op(character.to_string()));
-            cursor += 1;
-            continue;
+        Value::Str(text) => Ok(AtomConst::Str(text.clone())),
+        Value::List(members) => {
+            members.iter().map(atom_constant).collect::<Result<Vec<_>, _>>().map(AtomConst::List)
         }
-        if matches!(character, '(' | ')' | '[' | ']' | ',') {
-            toks.push(Tok::Op(character.to_string()));
-            cursor += 1;
-            continue;
-        }
-        cursor += 1;
-    }
-
-    // Coalesce "not" + "in" -> "not in"
-    let mut out = Vec::new();
-    let mut idx = 0;
-    while idx < toks.len() {
-        if idx + 1 < toks.len() {
-            if let (Tok::Op(o1), Tok::Op(o2)) = (&toks[idx], &toks[idx + 1]) {
-                if o1 == "not" && o2 == "in" {
-                    out.push(Tok::Op("not in".to_string()));
-                    idx += 2;
-                    continue;
-                }
-            }
-        }
-        out.push(toks[idx].clone());
-        idx += 1;
-    }
-    out
-}
-
-fn flip_op(op: &str) -> String {
-    match op {
-        "<" => ">".to_string(),
-        "<=" => ">=".to_string(),
-        ">" => "<".to_string(),
-        ">=" => "<=".to_string(),
-        "==" => "==".to_string(),
-        "!=" => "!=".to_string(),
-        other => other.to_string(),
+        other => Err(format!("constant {other:?} is not a Level M scalar")),
     }
 }
 
-pub fn parse_atoms(expr_str: &str) -> Vec<Atom> {
-    let toks = tokenize_cond(expr_str);
-    let mut atoms = Vec::new();
-    let mut cursor = 0;
-
-    while cursor < toks.len() {
-        match &toks[cursor] {
-            Tok::Op(op) if op == "and" || op == "or" || op == "not" => {
-                cursor += 1;
-            }
-            Tok::Op(op) if op == "(" || op == ")" || op == "[" || op == "]" || op == "," => {
-                cursor += 1;
-            }
-            Tok::Ident(field) => {
-                let f_name = field.clone();
-                if cursor + 1 < toks.len() {
-                    if let Tok::Op(cmp_op) = &toks[cursor + 1] {
-                        if cmp_op == "in" || cmp_op == "not in" {
-                            // field in (c1, c2, ...)
-                            let op_str = cmp_op.clone();
-                            cursor += 2;
-                            let mut consts = Vec::new();
-                            if cursor < toks.len() && matches!(&toks[cursor], Tok::Op(bracket) if bracket == "(" || bracket == "[") {
-                                cursor += 1;
-                                while cursor < toks.len() {
-                                    match &toks[cursor] {
-                                        Tok::Str(text) => consts.push(AtomConst::Str(text.clone())),
-                                        Tok::Num(number) => consts.push(AtomConst::Num(*number)),
-                                        Tok::Bool(flag) => consts.push(AtomConst::Bool(*flag)),
-                                        Tok::Op(bracket) if bracket == ")" || bracket == "]" => {
-                                            cursor += 1;
-                                            break;
-                                        }
-                                        _ => {}
-                                    }
-                                    cursor += 1;
-                                }
-                            }
-                            atoms.push(Atom {
-                                field: f_name,
-                                op: op_str,
-                                const_val: AtomConst::List(consts),
-                            });
-                            continue;
-                        } else if matches!(cmp_op.as_str(), "<" | "<=" | ">" | ">=" | "==" | "!=") {
-                            let op_str = cmp_op.clone();
-                            if cursor + 2 < toks.len() {
-                                match &toks[cursor + 2] {
-                                    Tok::Num(number) => {
-                                        atoms.push(Atom {
-                                            field: f_name,
-                                            op: op_str,
-                                            const_val: AtomConst::Num(*number),
-                                        });
-                                        cursor += 3;
-                                        continue;
-                                    }
-                                    Tok::Str(text) => {
-                                        atoms.push(Atom {
-                                            field: f_name,
-                                            op: op_str,
-                                            const_val: AtomConst::Str(text.clone()),
-                                        });
-                                        cursor += 3;
-                                        continue;
-                                    }
-                                    Tok::Bool(flag) => {
-                                        atoms.push(Atom {
-                                            field: f_name,
-                                            op: op_str,
-                                            const_val: AtomConst::Bool(*flag),
-                                        });
-                                        cursor += 3;
-                                        continue;
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                }
-                // Bare field -> truthiness
-                atoms.push(Atom {
-                    field: f_name,
-                    op: "truthy".to_string(),
-                    const_val: AtomConst::None,
-                });
-                cursor += 1;
-            }
-            Tok::Num(number) => {
-                let val = *number;
-                if cursor + 2 < toks.len() {
-                    if let (Tok::Op(cmp_op), Tok::Ident(field)) = (&toks[cursor + 1], &toks[cursor + 2]) {
-                        if matches!(cmp_op.as_str(), "<" | "<=" | ">" | ">=" | "==" | "!=") {
-                            atoms.push(Atom {
-                                field: field.clone(),
-                                op: flip_op(cmp_op),
-                                const_val: AtomConst::Num(val),
-                            });
-                            cursor += 3;
-                            continue;
-                        }
-                    }
-                }
-                cursor += 1;
-            }
-            Tok::Str(text) => {
-                let val = text.clone();
-                if cursor + 2 < toks.len() {
-                    if let (Tok::Op(cmp_op), Tok::Ident(field)) = (&toks[cursor + 1], &toks[cursor + 2]) {
-                        if matches!(cmp_op.as_str(), "<" | "<=" | ">" | ">=" | "==" | "!=") {
-                            atoms.push(Atom {
-                                field: field.clone(),
-                                op: flip_op(cmp_op),
-                                const_val: AtomConst::Str(val),
-                            });
-                            cursor += 3;
-                            continue;
-                        }
-                    }
-                }
-                cursor += 1;
-            }
-            _ => {
-                cursor += 1;
-            }
-        }
-    }
-
-    atoms
-}
-
-fn expr_of(cond: &str) -> String {
-    let text = cond.trim();
-    if text.to_lowercase().starts_with("when ") {
-        text[5..].trim().to_string()
-    } else {
-        text.to_string()
-    }
-}
-
-pub fn extract_flow_atoms(graph: &Graph) -> HashMap<String, Vec<Atom>> {
+/// Every field's atoms across the flow's deterministic, non semantic edges. A flow with any such
+/// condition outside Level M is refused whole, with every offending condition and its reason, because
+/// only Level M conditions reduce to per field cut points. A field compared with another field, or a
+/// string ordered against a constant, depends on values the partition does not keep, and skipping the
+/// condition, as this crate did before October 2026, let a decoded reading take an edge the raw
+/// reading did not. quantizer.py refuses the same flows.
+pub fn extract_flow_atoms(graph: &Graph) -> Result<HashMap<String, Vec<Atom>>, String> {
     let mut fields: HashMap<String, Vec<Atom>> = HashMap::new();
-    for node in graph.nodes.values() {
-        for (_target, cond) in &node.edges {
+    let mut outside: Vec<String> = Vec::new();
+    let mut names: Vec<&String> = graph.nodes.keys().collect();
+    names.sort();
+    for name in names {
+        for (_target, cond) in &graph.nodes[name].edges {
             if !prismpath_rs::is_deterministic(cond) || prismpath_rs::is_semantic(cond) {
                 continue;
             }
-            let expr = expr_of(cond);
-            let lower = expr.to_lowercase();
-            if ALWAYS.contains(&lower.as_str()) || NEVER.contains(&lower.as_str()) {
-                continue;
-            }
-            let atoms = parse_atoms(&expr);
-            for atom in atoms {
-                fields.entry(atom.field.clone()).or_default().push(atom);
+            match condition_atoms(cond) {
+                Ok(atoms) => {
+                    for atom in atoms {
+                        fields.entry(atom.field.clone()).or_default().push(atom);
+                    }
+                }
+                Err(reason) => outside.push(format!("{name}: {cond:?} ({reason})")),
             }
         }
     }
-    fields
+    if !outside.is_empty() {
+        return Err(format!(
+            "the flow routes on conditions outside Level M, which the codec cannot carry: {}",
+            outside.join("; ")
+        ));
+    }
+    Ok(fields)
 }
 
-pub fn build_partitions(graph: &Graph) -> HashMap<String, FieldPartition> {
-    let flow_atoms = extract_flow_atoms(graph);
+/// Per decision relevant field, the coarsest partition that preserves every routing decision, or
+/// the reason the flow cannot be partitioned faithfully. A field whose kind cannot be settled, mixing
+/// strings with numbers or comparing with None, used to be dropped from the partition silently, so
+/// readings on it decoded without it.
+pub fn build_partitions(graph: &Graph) -> Result<HashMap<String, FieldPartition>, String> {
+    if let Some(reason) = &graph.field_error {
+        return Err(reason.clone());
+    }
+    if !graph.fields.is_empty() {
+        return defined_partitions(graph);
+    }
     let mut parts = HashMap::new();
-    for (field, atoms) in flow_atoms {
-        if let Ok(kind) = classify_kind(&atoms) {
+    for (field, atoms) in extract_flow_atoms(graph)? {
+        let kind = classify_kind(&atoms).map_err(|reason| format!("{field}: {reason}"))?;
+        let part = match kind {
+            FieldKind::Numeric => numeric_partition(&field, &atoms),
+            FieldKind::Categorical => categorical_partition(&field, &atoms),
+            FieldKind::Boolean => boolean_partition(&field),
+        };
+        parts.insert(field, part);
+    }
+    Ok(parts)
+}
+
+/// The partitions of a flow that defines its fields, the twin of quantizer.py `_defined_partitions`.
+/// The parser has lowered every decimal threshold and checked every rule, so each field's kind is its
+/// definition's. A comparison with None adds no cut, since it is constant across present values, and a
+/// field that allows absence gets the absent cell. The engine counters keep the inferred partition.
+fn defined_partitions(graph: &Graph) -> Result<HashMap<String, FieldPartition>, String> {
+    let mut parts = HashMap::new();
+    for (field, atoms) in extract_flow_atoms(graph)? {
+        let Some(definition) = graph.fields.get(&field) else {
+            let kind = classify_kind(&atoms).map_err(|reason| format!("{field}: {reason}"))?;
             let part = match kind {
                 FieldKind::Numeric => numeric_partition(&field, &atoms),
                 FieldKind::Categorical => categorical_partition(&field, &atoms),
                 FieldKind::Boolean => boolean_partition(&field),
             };
             parts.insert(field, part);
-        }
+            continue;
+        };
+        let present: Vec<Atom> = atoms.into_iter()
+            .filter(|atom| atom.op == "truthy" || !matches!(atom.const_val, AtomConst::None))
+            .collect();
+        let built = match definition.kind {
+            DefinedKind::Int | DefinedKind::Fixed => numeric_partition(&field, &present),
+            DefinedKind::Category => categorical_partition(&field, &present),
+            DefinedKind::Bool => boolean_partition(&field),
+        };
+        parts.insert(field, FieldPartition::defined(built, definition.clone()));
     }
-    parts
+    Ok(parts)
 }
 
 pub fn quantize(
@@ -749,8 +643,14 @@ pub fn quantize(
 ) -> Result<HashMap<String, usize>, String> {
     let mut out = HashMap::new();
     for (field, partition) in parts {
-        if let Some(value) = reading.get(field) {
-            out.insert(field.clone(), partition.symbol(value)?);
+        match reading.get(field) {
+            Some(value) => {
+                out.insert(field.clone(), partition.symbol(value)?);
+            }
+            None if partition.definition.is_some() => {
+                out.insert(field.clone(), partition.symbol(&V::Null)?);
+            }
+            None => {}
         }
     }
     Ok(out)

@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 use std::io::BufRead;
 
-use prismpath_rs::{parse, py_truthy, Graph, V};
+use prismpath_rs::{parse, Graph, V};
 use prismpath_telemetry_rs::quantizer::{self, FieldKind, FieldPartition};
 use prismpath_telemetry_rs::{packed, wire, zeckendorf};
 use serde_json::{json, Value};
@@ -63,7 +63,6 @@ pub struct Scan {
     pub missing_counts: HashMap<String, usize>,
     pub out_of_partition: HashMap<String, usize>,
     pub oop_examples: HashMap<String, String>,
-    pub truncated_counts: HashMap<String, usize>,
     pub refusals: HashMap<String, HashMap<String, usize>>,
     pub field_seen: HashMap<String, usize>,
     pub raw_bytes: usize,
@@ -75,30 +74,6 @@ pub struct Scan {
     pub unseen: Vec<String>,
     pub codec_errors: usize,
     pub ready: bool,
-}
-
-// Mirrors of the quantizer's private coercions (quantizer.rs `v_to_i64` / `v_to_str`): the
-// preflight must route the SAME view of a value that `symbol()` quantizes, or float truncation
-// and string coercion would show up as false round-trip mismatches.
-/// The permissive numeric view the crate's `symbol` uses, mirrored here so the report shows the
-/// reading as the encoder will see it: a fraction truncates, a bool is 0 or 1, and a string that
-/// is not an integer literal is an error, never zero.
-fn v_to_i64(value: &V) -> Result<i64, String> {
-    match value {
-        V::Num(number) => Ok(*number as i64),
-        V::Bool(flag) => Ok(i64::from(*flag)),
-        V::Str(text) => text.parse::<i64>().map_err(|_| format!("{text:?} is not an integer literal")),
-        other => Err(format!("{other:?} is not a number")),
-    }
-}
-
-fn v_to_str(value: &V) -> String {
-    match value {
-        V::Str(text) => text.clone(),
-        V::Num(number) => number.to_string(),
-        V::Bool(flag) => if *flag { "True".into() } else { "False".into() },
-        _ => String::new(),
-    }
 }
 
 /// Dot-path lookup, mirroring the codec's `parse_path_and_get_value`: absent and JSON null are
@@ -158,40 +133,20 @@ fn count_detail(counts: &HashMap<String, usize>) -> String {
     detail.join(", ")
 }
 
-/// The reading exactly as the permissive `symbol()` will see it, plus which fields lost a fraction
-/// to truncation, and the fields acceptance refuses with the reason each. The contract is
-/// what the checked encoder refuses at runtime, so the report predicts it exactly.
-/// The reading as the encoder sees it, the fields that lost a fraction, and the fields the input
-/// contract refuses with the reason each.
-type CodecView = (HashMap<String, V>, Vec<String>, Vec<(String, String)>);
+/// The reading as the codec compares it, which is the reading itself, and the fields acceptance
+/// refuses with the reason each. Since October 2026 the encoder converts nothing a policy could tell
+/// apart, so the route of the reading as it arrives is the route the codec must preserve, and a
+/// refused value is reported, never reshaped. The twin of preflight.py `_codec_view`.
+type CodecView = (HashMap<String, V>, Vec<(String, String)>);
 
 fn codec_view(parts: &HashMap<String, FieldPartition>, reading: &HashMap<String, V>) -> CodecView {
-    let mut seen = HashMap::new();
-    let mut truncated = Vec::new();
     let mut refused = Vec::new();
     for (field, value) in reading {
-        let partition = &parts[field];
-        if let Err(refusal) = quantizer::accept_value(&partition.kind, value) {
-            refused.push((field.clone(), refusal.reason().to_string()));
+        if let Err(error) = parts[field].checked_symbol(value) {
+            refused.push((field.clone(), error.refusal.reason().to_string()));
         }
-        let out = match partition.kind {
-            FieldKind::Numeric => {
-                if let V::Num(number) = value {
-                    if number.fract() != 0.0 {
-                        truncated.push(field.clone());
-                    }
-                }
-                match v_to_i64(value) {
-                    Ok(number) => V::Num(number as f64),
-                    Err(_) => value.clone(),   // the permissive encoder will refuse it; keep it visible
-                }
-            }
-            FieldKind::Boolean => V::Bool(py_truthy(value)),
-            FieldKind::Categorical => V::Str(v_to_str(value)),
-        };
-        seen.insert(field.clone(), out);
     }
-    (seen, truncated, refused)
+    (reading.clone(), refused)
 }
 
 fn branch_nodes(graph: &Graph, nodes: &[String]) -> Vec<String> {
@@ -212,7 +167,9 @@ impl Codebook {
         let flow_text = std::fs::read_to_string(&cfg.flow)
             .map_err(|error| format!("cannot read flow {:?}: {error}", cfg.flow))?;
         let graph = parse(&flow_text);
-        let parts = quantizer::build_partitions(&graph);
+        let parts = quantizer::build_partitions(&graph).map_err(|reason| {
+            format!("NOT READY: policy {:?} cannot be carried by the codec: {reason}", cfg.flow)
+        })?;
         if parts.is_empty() {
             return Err(format!(
                 "NOT READY: policy {:?} yields no decision-relevant fields (no `field OP const` \
@@ -300,7 +257,6 @@ pub fn scan_sample(codebook: Codebook, reader: &mut dyn BufRead, cfg: &Config)
     let mut missing_counts: HashMap<String, usize> = HashMap::new();
     let mut out_of_partition: HashMap<String, usize> = HashMap::new();
     let mut oop_examples: HashMap<String, String> = HashMap::new();
-    let mut truncated_counts: HashMap<String, usize> = HashMap::new();
     let mut refusals: HashMap<String, HashMap<String, usize>> = HashMap::new();
     let mut field_seen: HashMap<String, usize> = HashMap::new();
     let (mut raw_bytes, mut wire_bits, mut framed_bytes) = (0usize, 0usize, 0usize);
@@ -342,6 +298,10 @@ pub fn scan_sample(codebook: Codebook, reader: &mut dyn BufRead, cfg: &Config)
         for field in reading.keys() {
             *field_seen.entry(field.clone()).or_default() += 1;
         }
+        // A defined field whose definition allows absence is not missing when it is absent.
+        let missing: Vec<String> = missing.into_iter()
+            .filter(|field| !codebook.parts[field].definition.as_ref().is_some_and(|definition| definition.absent_allowed))
+            .collect();
         if !missing.is_empty() {
             missing_events += 1;
             for field in missing {
@@ -350,10 +310,7 @@ pub fn scan_sample(codebook: Codebook, reader: &mut dyn BufRead, cfg: &Config)
             continue;
         }
 
-        let (seen, truncated, refused) = codec_view(&codebook.parts, &reading);
-        for field in truncated {
-            *truncated_counts.entry(field).or_default() += 1;
-        }
+        let (seen, refused) = codec_view(&codebook.parts, &reading);
         for (field, reason) in refused {
             *refusals.entry(field).or_default().entry(reason).or_default() += 1;
         }
@@ -402,7 +359,6 @@ pub fn scan_sample(codebook: Codebook, reader: &mut dyn BufRead, cfg: &Config)
         missing_counts,
         out_of_partition,
         oop_examples,
-        truncated_counts,
         refusals,
         field_seen,
         raw_bytes,
@@ -457,11 +413,6 @@ fn section_sample_scan(cfg: &Config, scan: &Scan) -> Vec<String> {
     for (field, count) in by_count_desc(&scan.out_of_partition) {
         md.push(format!("- out of partition on `{field}`: {count} events (example value: {}) -> \
                          encoding error", scan.oop_examples[field]));
-    }
-    if !scan.truncated_counts.is_empty() {
-        md.push(format!("- float truncation: numeric fields compare on int(value); affected: {} \
-                         (a 21.7 routes as 21; make thresholds integer-aware or scale the field)",
-                        count_detail(&scan.truncated_counts)));
     }
     let mut refused_fields: Vec<&String> = scan.refusals.keys().collect();
     refused_fields.sort();
@@ -628,7 +579,6 @@ pub fn render_json(cfg: &Config, scan: &Scan) -> Value {
         "events": scan.n_events, "bad_json": scan.bad_json, "encoded": scan.n_encoded,
         "missing_events": scan.missing_events, "missing_by_field": scan.missing_counts,
         "out_of_partition": scan.out_of_partition,
-        "float_truncated_by_field": scan.truncated_counts,
         "refused_by_field": scan.refusals,
         "fields_never_seen": scan.unseen,
         "raw_bytes_per_event": if scan.n_events > 0 {

@@ -134,7 +134,9 @@ def main() -> int:
             expected.append(None)          # the encoder dropped it; no decoded twin should exist
             continue
         try:
-            seen, _trunc = preflight._codec_view(parts, reading)
+            seen = preflight._codec_view(parts, reading)
+            # the encoder refuses whatever acceptance refuses (a fraction, a numeric string), so such an
+            # event has no decoded twin
             wire.encode_reading(parts, seen)
         except (TypeError, ValueError, KeyError):
             unencodable += 1

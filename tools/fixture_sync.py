@@ -23,10 +23,15 @@ KERNEL_CORPUS = "prismpath/portable/conformance"
 WIRE_CORPUS = "prismpath/telemetry/conformance"
 COPIES = {
     "prismpath-rs/tests/fixtures": (KERNEL_CORPUS, ["capability", "connector", "context", "crypto_agility", "crypto_migration",
-                                                    "durable", "flows", "level_m", "locked_flows", "predicates", "reach"]),
+                                                    "durable", "field_definitions", "flows", "level_m", "locked_flows", "predicates",
+                                                    "reach"]),
     "prismpath-hotswap-rs/tests/fixtures": (KERNEL_CORPUS, ["hotswap"]),
-    "prismpath-telemetry-rs/tests/fixtures": (WIRE_CORPUS, ["boundary", "decisions", "inputs", "spiral"]),
+    "prismpath-telemetry-rs/tests/fixtures": (WIRE_CORPUS, ["boundary", "decisions", "defined_wire", "inputs",
+                                                            "policy_forms", "spiral"]),
 }
+# A copy a crate reads from the other corpus: the wire crate's defined fields tests replay the kernel's
+# field definitions corpus, the same file the kernel crate copies.
+CROSS_COPIES = [("prismpath-telemetry-rs/tests/fixtures/field_definitions.json", f"{KERNEL_CORPUS}/field_definitions.json")]
 
 
 def pairs() -> list[tuple[str, str]]:
@@ -35,7 +40,7 @@ def pairs() -> list[tuple[str, str]]:
     for crate_dir, (corpus, names) in COPIES.items():
         for name in names:
             out.append((f"{crate_dir}/{name}.json", f"{corpus}/{name}.json"))
-    return out
+    return out + CROSS_COPIES
 
 
 def check(repo_root: Path = REPO_ROOT) -> list[str]:

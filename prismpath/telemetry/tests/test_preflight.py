@@ -89,20 +89,19 @@ def test_unconvertible_numeric_is_reported_not_crashed(tmp_path):
     assert report["out_of_partition"] == {"temp": 1} and report["encoded"] == 1
 
 
-def test_float_truncation_counted_and_null_is_missing(tmp_path):
-    # The permissive encoder still truncates 49.9 to 49 and the report counts it, but the input
-    # contract refuses a fraction, so the sample is not READY: the checked encoder would refuse it.
+def test_a_fraction_is_refused_not_truncated_and_null_is_missing(tmp_path):
     flow, sample = _setup(tmp_path, [
-        {"temp": 49.9, "armed": True},                # truncates to 49 for the permissive path, refused by the contract
+        {"temp": 49.9, "armed": True},                # refused as fractional, never truncated to 49
         {"temp": None, "armed": True}])               # JSON null = missing, as in the codec
     out = tmp_path / "report.json"
     result = _run(flow, sample, "--on-missing", "skip", "--json", str(out))
-    assert result.returncode == 1
+    assert result.returncode == 1, "a fraction is refused by acceptance"
     report = json.loads(out.read_text())
-    assert report["float_truncated_by_field"] == {"temp": 1}
+    assert "float_truncated_by_field" not in report
     assert report["refused_by_field"] == {"temp": {"fractional": 1}}
     assert report["missing_by_field"] == {"temp": 1}
-    assert report["route_distribution"]["classify"] == {"ok": 1}
+    assert report["out_of_partition"] == {"temp": 1}, "the encoder cannot place it, as for any refused value"
+    assert report["encoded"] == 0, "the fractional reading is not encoded under a truncated value"
     assert report["ready"] is False
 
 
@@ -194,3 +193,40 @@ def test_scan_render_byte_identity(tmp_path):
 
     assert cli_stdout == expected_full_stdout
     assert cli_json_text == expected_json_text
+
+
+_DEFINED_FLOW = """---
+name: defined_guard
+start: classify
+field.load: fixed scale=100 unit=ratio rounding=floor min=0 max=100
+field.zone: category absent=allowed
+---
+## classify
+-> critical: when load >= 0.9
+-> unzoned: when zone == None
+-> warn: when load >= 0.5 and zone == "a"
+-> ok: else
+## critical
+## unzoned
+## warn
+## ok
+"""
+
+
+def test_a_defined_flow_is_judged_by_its_definitions(tmp_path):
+    # A string spelling a number is refused, not parsed, a fraction is refused, and an absent zone is
+    # a value the flow routes on rather than a missing field. The Rust preflight pins the same report.
+    flow = tmp_path / "flow.md"
+    flow.write_text(_DEFINED_FLOW)
+    sample = tmp_path / "sample.ndjson"
+    events = [{"load": 95, "zone": "a"}, {"load": 60}, {"load": 60, "zone": None}, {"load": 60, "zone": "a"},
+              {"load": "60", "zone": "a"}, {"load": 60.5, "zone": "a"}]
+    sample.write_text("".join(json.dumps(event) + "\n" for event in events))
+    out = tmp_path / "report.json"
+    result = _run(flow, sample, "--json", str(out))
+    assert result.returncode == 1, result.stdout + result.stderr
+    report = json.loads(out.read_text())
+    assert report["refused_by_field"] == {"load": {"wrong_type": 1, "fractional": 1}}
+    assert not report.get("missing_by_field")
+    assert report["encoded"] == 4 and report["route_mismatches"] == []
+    assert report["ready"] is False
