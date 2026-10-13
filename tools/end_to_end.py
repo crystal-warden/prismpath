@@ -104,7 +104,7 @@ fn main() {
     let job_path = std::env::args().nth(1).expect("job path");
     let job: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&job_path).expect("read job")).expect("parse job");
     let graph = parse(job["flow"].as_str().unwrap());
-    let parts = quantizer::build_partitions(&graph);
+    let parts = quantizer::build_partitions(&graph).expect("a Level M flow the codec carries");
     let mut results = Vec::new();
     for (raw_json, accepted_json) in job["readings"].as_array().unwrap().iter().zip(job["accepted"].as_array().unwrap()) {
         let raw = reading_of(raw_json);
