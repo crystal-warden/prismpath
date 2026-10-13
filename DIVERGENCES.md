@@ -27,4 +27,5 @@ difference nobody intended, which is a defect.
 | `prismpath/telemetry/canary_verify.py` strict identity mode (`--id-field`) | route parity only | a duplicate standing in for a lost event escaped route parity; applied to research at 7693db5 |
 | `prismpath/hotswap/policy_host.py` persists the active policy (`active.ppt`, `active_policy.json`) and restores it in a new process | the active policy lives in the process that swapped | `swap attest` and the console build a fresh host and attested nothing after a real swap; applied to research at e28222c |
 | `prismpath/mission_control/attest.py` reads the size limit from the settings object | reads a constant the module does not define | the model check and trail panels answered 500 on every call; applied to research at e28222c |
+| `prismpath/tests/test_conformance_drift.py` omits the declared hardware subset test | pins the frozen subset in `prismpath-hw/declared_subset.json` | the hardware tree is not carried, so the test could only skip |
 | `prismpath/telemetry/selfheal.py` and `README.md` describe the audit log as the real Merkle primitive | call it a stub | the description was stale |

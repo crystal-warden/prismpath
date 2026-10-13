@@ -10,8 +10,33 @@ spec stable.
 
 This repository became the self contained developer product on 2026-09-19, seeded from the research
 repository crystal-warden/prism-path at commit 40a9b05b3523cb4943b583b77c6fb86f93d795ee onto the
-previous public repository's history (9129c27). The sections below this one are the research
-changelog as adopted at that commit; the entries here are the product's own.
+previous public repository's history (9129c27), and promoted to research commit
+a0cccf85e92823b3ec5cc8b102c1420bdf3dfb47 on 2026-10-13. The research sections below this one are the
+research changelog as adopted; the entries here are the product's own.
+
+### Promoted from research a0cccf8 (2026-10-13)
+- **Field definitions** (SPEC.md section 4.5): a flow can declare `field.<name>: int|fixed|bool|category`
+  with scale, rounding, unit, range and whether absence is allowed, and the parser lowers decimal
+  thresholds on fixed fields to canonical integers, exactly. `prismpath.kernel.field_definitions` and its
+  Rust twin share one canonical conversion, frozen as `conformance/field_definitions.json`.
+- **One acceptance rule on every encoder**, Python and Rust: a value the policy could tell apart from
+  its encoding is refused with the field and the reason, never truncated, parsed or coerced. A fraction,
+  a string on a numeric field, truthiness on a boolean field and a number on a categorical field are
+  refusals, and a missing field is refused as `missing`. `encode_reading_checked` is the same encoder as
+  `encode_reading`, kept under its earlier name. The acceptance corpus is at version 2, which marks every
+  expectation it changed.
+- **Absence as a cell**: a defined field that allows absence has a last cell of its own, so an absent
+  value is distinct from zero, false and every string on the wire.
+- A flow outside Level M is refused by the codec whole, naming each condition, and every Level M form
+  (negative thresholds, chained ranges, a constant on the left) contributes its cuts; frozen as
+  `conformance/policy_forms.json`. The defined wire corpus, `conformance/defined_wire.json`, pins the
+  encoding of defined fields.
+- The predicate corpus at 1,112 cases (from 1,079) and the boundary corpus at version 2; Level M
+  integers span plus or minus 2^53 minus 1 (SPEC.md section 4.3).
+- The policy host gives the audited fail closed answer to an active record that is not an object.
+- Preflight, both tools, reports refusals per field and has no truncation counter left to report.
+- The crates at 0.2.0: prismpath-rs and prismpath-telemetry-rs (prismpath-preflight stays 0.1.0 and
+  depends on both).
 
 ### Added
 - The four Rust crates (prismpath-rs, prismpath-telemetry-rs, prismpath-hotswap-rs, prismpath-preflight),
@@ -91,7 +116,10 @@ Adopters who used these find them in research at the adopted revision.
   test_gate_zero_kappa, test_benign_corpus, test_bypass_corpus, test_bypass_report,
   test_gen_p1_lockfile, test_compile, test_portable_conformance, test_portable_runners,
   test_docs_health, test_evidence_check_manifest, test_mdflow_interop, test_net_swap, and the
-  telemetry bench codecs test.
+  telemetry bench codecs test. The promotion to a0cccf8 adds three more, for the same reason:
+  test_field_definitions_tables (the C interpreters), test_ebpf_table_limits (the eBPF evaluator) and
+  test_arch_guard (research's architecture guard), and the declared hardware subset test in
+  test_conformance_drift.
 
 ## Research changes since 0.1.0, adopted at 40a9b05
 

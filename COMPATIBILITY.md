@@ -7,20 +7,22 @@ part of a build.
 
 ## Adopted revision
 
-Research source: crystal-warden/prism-path at commit `40a9b05b3523cb4943b583b77c6fb86f93d795ee`, adopted 2026-09-19.
-Every file this product copied from research came from that commit, byte for byte, and
-`PROVENANCE.md` records the source blob of each. Adopted hashes below are the hashes of the research
-files at that commit. The hashes of the product's own copies, which may be edited afterwards, are in
+Research source: crystal-warden/prism-path at commit `a0cccf85e92823b3ec5cc8b102c1420bdf3dfb47`, promoted 2026-10-13 onto the seed
+adopted 2026-09-19 at `40a9b05b3523cb4943b583b77c6fb86f93d795ee`. Every file this product carries from research is the research file at
+that commit, byte for byte or merged with a product difference listed in `DIVERGENCES.md`. The lock
+records a0cccf8 on every path the promotion changed and keeps the seed revision on the paths research
+left untouched between the two, whose bytes are therefore the same at both, and `PROVENANCE.md` records
+the source blob of each. Adopted hashes below are the hashes of the research files at a0cccf8. The hashes of the product's own copies, which may be edited afterwards, are in
 `SHA256SUMS` and are a different thing.
 
 ## Specifications
 
 | Document | Adopted version | Adopted sha256 | Product copy |
 |---|---|---|---|
-| SPEC.md, the flow format | spec version 1 (draft) | `6f17371550921258fc60325d9fb1c90bd6c0fa167593394359d594d88ecd012f` | unedited copy |
-| PROTOCOL.md, the Facet wire | Facet/1 (draft) | `9e81b0421af4a29c184378c8df5dcf97c1ae99b30cf0e8cea2b88b971badb464` | unedited copy |
-| TABLE_FORMAT.md, the PPT v1 image | PPT v1 | `f0561aaeef21e7494f63cf363b23d425417b904bcf655c67e69b7a6751dd017c` | not carried, [read it at the adopted revision](https://github.com/crystal-warden/prism-path/blob/40a9b05b3523cb4943b583b77c6fb86f93d795ee/prismpath-hw/TABLE_FORMAT.md) |
-| docs/DICTIONARY.md, the vocabulary | as of the adopted revision | `407c44cb5a7e34de2c626bce86bb294355d8e02f87c2e7473bf2fbefc4115ee1` | product subset, meanings preserved, see below |
+| SPEC.md, the flow format | spec version 1 (draft) | `a811cc770a863e2893867355d99dbb14212ec20e3a23b04f661fe86eef35a171` | unedited copy |
+| PROTOCOL.md, the Facet wire | Facet/1 (draft) | `2272a5e005238482a07e352e30a016e3532c34393b9c92bf9d07d0bd1c46832c` | unedited copy |
+| TABLE_FORMAT.md, the PPT v1 image | PPT v1 | `f0561aaeef21e7494f63cf363b23d425417b904bcf655c67e69b7a6751dd017c` | not carried, [read it at the adopted revision](https://github.com/crystal-warden/prism-path/blob/a0cccf85e92823b3ec5cc8b102c1420bdf3dfb47/prismpath-hw/TABLE_FORMAT.md) |
+| docs/DICTIONARY.md, the vocabulary | as of the adopted revision | `514d24f331f9913c4a7177b671ec68573a945cc8006038c7d2ee5b91ae19450c` | product subset, meanings preserved, see below |
 
 The supported subset: the product implements spec version 1 in Python and Rust and carries the
 frozen vectors for it; the JavaScript kernel, the Go kernel, the C target, the fabric, the
@@ -54,15 +56,19 @@ Adopted byte for byte. Each crate carries the files its tests read as byte ident
 | `prismpath/portable/conformance/crypto_agility.json` | `4354755c20963f38497dbcd85b69678835403ce0fcf1ebe88e0cb16c04af589c` |
 | `prismpath/portable/conformance/crypto_migration.json` | `6d333b40433256f83526909f83dd7502ddced9cfc4b91fefde6e8e7d74297b6d` |
 | `prismpath/portable/conformance/durable.json` | `eed49418e33d86ca9700cd771e715a7178b65efc92b13d3c20466b9d95d84866` |
+| `prismpath/portable/conformance/field_definitions.json` | `50c777852951a0d03d17fcbf9db01c70322af3fb1432d40a76bc47c7df67df18` |
 | `prismpath/portable/conformance/flows.json` | `5c294462e9ef1a0ae040791af8c9f98653f6d1bf27822947f66bd62dbe238a6f` |
 | `prismpath/portable/conformance/hotswap.json` | `2ab87cc2e406accb39deb82577ddd461fd33dda87d18b95b3be70f92028afe09` |
 | `prismpath/portable/conformance/level_m.json` | `58b811a0ba277b359508ca15eed690415b0e0751ccbe76037001ad967bcb8d1d` |
 | `prismpath/portable/conformance/locked_flows.json` | `4da0192c4209b44b17bfddecb8edc78347093d82f876d234dd98642efc4595e6` |
-| `prismpath/portable/conformance/predicates.json` | `49e17b9ceb45b25fa47b8b2ac93c7c3b3a074c8ce843276eaf9a92894a0aba7b` |
+| `prismpath/portable/conformance/predicates.json` | `7ac112866e36147202866f7615ea6592ba828578d04368bebb2d90405e7bb711` |
 | `prismpath/portable/conformance/reach.json` | `98f00afc250f68dc8b552905236fdca221e0e4ee31bc306644c290cd017ff9d6` |
 | `prismpath/portable/conformance/safety.json` | `c1a5c7e5bbe3ada30a275d9c803572497bf9c8f2a0f240a0e8aea208ef6febe1` |
-| `prismpath/telemetry/conformance/boundary.json` | `47de3f16d1593a3607f7be642bd1878ec6d39f4e44f3dfc0f9e87220b144c209` |
+| `prismpath/telemetry/conformance/boundary.json` | `00d4ec70d1f49b7fbe0d985f51d325fdeea60c52a5e8b9ff39f4cc29fa3062c4` |
 | `prismpath/telemetry/conformance/decisions.json` | `6b68a08de7f57cdd11bee07bd256587094dc353b959d1195473c6880472479c8` |
+| `prismpath/telemetry/conformance/defined_wire.json` | `a289ca9233e63c03f75c64152b2769f377069ec26de9b162ce6a24d000fd2d65` |
+| `prismpath/telemetry/conformance/inputs.json` | `3af3541d5107695114acbb7d19e0083e3e1e5ff53623cb8427bffbe443a4f7dc` |
+| `prismpath/telemetry/conformance/policy_forms.json` | `1f7b71c29a7b5983b31dbb10bfd72d6e3757d5ee84bc07b919a553ed8468699d` |
 | `prismpath/telemetry/conformance/receipts.json` | `78181a5873ed88e5cd17ccae216641a09f9ec3bd79fcc3562fc4de452c539974` |
 | `prismpath/telemetry/conformance/spiral.json` | `050b031bf5c55cbf0fbd88a562ad80a58446b1466a10d1126fc974bb9a0dc444` |
 
@@ -70,7 +76,10 @@ Checks that run on them: `prismpath/tests/test_conformance_vectors.py` (the Pyth
 `flows.json` and the predicate vectors identically), `test_level_m_conformance.py`,
 `test_reach_conformance.py`, `test_capability_conformance.py`, `test_safety_vectors.py`,
 `test_crypto_agility.py`, `test_crypto_migration.py`, `test_rust_conformance.py` (cross language),
-the crate tests, and `prismpath/telemetry/tests` with `prismpath-telemetry-rs/tests` for the wire.
+`test_field_definitions.py` (field definitions, the canonical conversion and lowering, SPEC.md section
+4.5), the crate tests, and `prismpath/telemetry/tests` with `prismpath-telemetry-rs/tests` for the wire,
+where `test_acceptance`, `test_defined_fields` and `test_policy_forms` replay the acceptance, defined
+wire and policy forms corpora in both languages.
 
 ## Compiler references
 
@@ -90,7 +99,7 @@ historical image: git show 40a9b05:prismpath-hw/evidence/incident_severity.ppt, 
 The thirteen pairs are regression evidence for the carried flows. They are not a proof over the
 whole supported compiler domain. The historical image carries its own provenance, the research
 hardware evidence manifest at the adopted revision
-([`prismpath-hw/evidence/SHA256SUMS`](https://github.com/crystal-warden/prism-path/blob/40a9b05b3523cb4943b583b77c6fb86f93d795ee/prismpath-hw/evidence/SHA256SUMS)); its presence
+([`prismpath-hw/evidence/SHA256SUMS`](https://github.com/crystal-warden/prism-path/blob/a0cccf85e92823b3ec5cc8b102c1420bdf3dfb47/prismpath-hw/evidence/SHA256SUMS)); its presence
 here establishes nothing new about FPGA, microcontroller, eBPF, timing or field behavior.
 
 ## Dictionary
@@ -104,7 +113,7 @@ meaning here.
 ## What the research evidence does and does not cover
 
 The research evidence ledger at the adopted revision
-([`docs/research/supporting-evidence.md`](https://github.com/crystal-warden/prism-path/blob/40a9b05b3523cb4943b583b77c6fb86f93d795ee/docs/research/supporting-evidence.md)) supports
+([`docs/research/supporting-evidence.md`](https://github.com/crystal-warden/prism-path/blob/a0cccf85e92823b3ec5cc8b102c1420bdf3dfb47/docs/research/supporting-evidence.md)) supports
 the adopted behavior of the code as it was at that commit. Once a product file is edited, only the
 checks run on the shipped version speak for it: the product CI and the acceptance gates listed in
 `tools/README.md`. A pinned evidence link certifies the adopted revision, not modified code.

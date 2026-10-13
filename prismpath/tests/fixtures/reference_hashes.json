@@ -1,5 +1,5 @@
 {
- "adopted_revision": "40a9b05b3523cb4943b583b77c6fb86f93d795ee",
+ "adopted_revision": "a0cccf85e92823b3ec5cc8b102c1420bdf3dfb47",
  "cause_registry_sha256": "74f1b33c52f426159612c9f16e32e5f798939715fe212001b726b89ef1125ffe",
  "compiler_references": {
   "checksum_list": "prismpath/tests/fixtures/compiler/SHA256SUMS",
@@ -8,19 +8,19 @@
  },
  "files": {
   "PROTOCOL.md": {
-   "adopted_sha256": "9e81b0421af4a29c184378c8df5dcf97c1ae99b30cf0e8cea2b88b971badb464",
+   "adopted_sha256": "2272a5e005238482a07e352e30a016e3532c34393b9c92bf9d07d0bd1c46832c",
    "byte_identical": false,
    "note": "adopted unedited",
    "product_path": "PROTOCOL.md"
   },
   "SPEC.md": {
-   "adopted_sha256": "6f17371550921258fc60325d9fb1c90bd6c0fa167593394359d594d88ecd012f",
+   "adopted_sha256": "a811cc770a863e2893867355d99dbb14212ec20e3a23b04f661fe86eef35a171",
    "byte_identical": false,
    "note": "adopted unedited",
    "product_path": "SPEC.md"
   },
   "docs/DICTIONARY.md": {
-   "adopted_sha256": "407c44cb5a7e34de2c626bce86bb294355d8e02f87c2e7473bf2fbefc4115ee1",
+   "adopted_sha256": "514d24f331f9913c4a7177b671ec68573a945cc8006038c7d2ee5b91ae19450c",
    "byte_identical": false,
    "note": "product subset, see COMPATIBILITY.md",
    "product_path": null
@@ -73,6 +73,12 @@
    "note": "frozen kernel corpus, byte for byte",
    "product_path": "prismpath/portable/conformance/durable.json"
   },
+  "prismpath/portable/conformance/field_definitions.json": {
+   "adopted_sha256": "50c777852951a0d03d17fcbf9db01c70322af3fb1432d40a76bc47c7df67df18",
+   "byte_identical": true,
+   "note": "frozen field definitions corpus (SPEC 4.5), byte for byte",
+   "product_path": "prismpath/portable/conformance/field_definitions.json"
+  },
   "prismpath/portable/conformance/flows.json": {
    "adopted_sha256": "5c294462e9ef1a0ae040791af8c9f98653f6d1bf27822947f66bd62dbe238a6f",
    "byte_identical": true,
@@ -98,7 +104,7 @@
    "product_path": "prismpath/portable/conformance/locked_flows.json"
   },
   "prismpath/portable/conformance/predicates.json": {
-   "adopted_sha256": "49e17b9ceb45b25fa47b8b2ac93c7c3b3a074c8ce843276eaf9a92894a0aba7b",
+   "adopted_sha256": "7ac112866e36147202866f7615ea6592ba828578d04368bebb2d90405e7bb711",
    "byte_identical": true,
    "note": "frozen kernel corpus, byte for byte",
    "product_path": "prismpath/portable/conformance/predicates.json"
@@ -116,7 +122,7 @@
    "product_path": "prismpath/portable/conformance/safety.json"
   },
   "prismpath/telemetry/conformance/boundary.json": {
-   "adopted_sha256": "47de3f16d1593a3607f7be642bd1878ec6d39f4e44f3dfc0f9e87220b144c209",
+   "adopted_sha256": "00d4ec70d1f49b7fbe0d985f51d325fdeea60c52a5e8b9ff39f4cc29fa3062c4",
    "byte_identical": true,
    "note": "frozen Facet corpus, byte for byte",
    "product_path": "prismpath/telemetry/conformance/boundary.json"
@@ -127,11 +133,23 @@
    "note": "frozen Facet corpus, byte for byte",
    "product_path": "prismpath/telemetry/conformance/decisions.json"
   },
-  "prismpath/telemetry/conformance/inputs.json": {
-   "adopted_sha256": "0ea417177b0418ac9ea79823841c5124851bb29b33ebd1641d6a674f653837d0",
+  "prismpath/telemetry/conformance/defined_wire.json": {
+   "adopted_sha256": "a289ca9233e63c03f75c64152b2769f377069ec26de9b162ce6a24d000fd2d65",
    "byte_identical": true,
-   "note": "the Facet acceptance corpus, authored in the product 2026-09-22 and carried to research with identical bytes",
+   "note": "frozen defined field wire corpus, byte for byte",
+   "product_path": "prismpath/telemetry/conformance/defined_wire.json"
+  },
+  "prismpath/telemetry/conformance/inputs.json": {
+   "adopted_sha256": "3af3541d5107695114acbb7d19e0083e3e1e5ff53623cb8427bffbe443a4f7dc",
+   "byte_identical": true,
+   "note": "the Facet acceptance corpus, version 2; product authored 2026-09, owned by research since (570babc, then the October reading boundary)",
    "product_path": "prismpath/telemetry/conformance/inputs.json"
+  },
+  "prismpath/telemetry/conformance/policy_forms.json": {
+   "adopted_sha256": "1f7b71c29a7b5983b31dbb10bfd72d6e3757d5ee84bc07b919a553ed8468699d",
+   "byte_identical": true,
+   "note": "frozen policy forms corpus, byte for byte",
+   "product_path": "prismpath/telemetry/conformance/policy_forms.json"
   },
   "prismpath/telemetry/conformance/receipts.json": {
    "adopted_sha256": "78181a5873ed88e5cd17ccae216641a09f9ec3bd79fcc3562fc4de452c539974",
