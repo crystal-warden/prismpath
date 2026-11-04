@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 fn load_decisions_corpus() -> Value {
-    let path = std::path::Path::new("../adapters/telemetry/conformance/decisions.json");
+    let path = std::path::Path::new("../prismpath/telemetry/conformance/decisions.json");
     let content = std::fs::read_to_string(path).expect("read decisions.json");
     serde_json::from_str(&content).expect("parse decisions.json")
 }
@@ -21,7 +21,7 @@ fn json_obj_to_reading(obj: &serde_json::Map<String, Value>) -> HashMap<String, 
 fn test_corpus_pinned() {
     let corpus = load_decisions_corpus();
     let cases = corpus["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 4);
+    assert_eq!(cases.len(), 7); // v2: three cut point regression flows joined the four originals
     let total_readings: usize = cases
         .iter()
         .map(|c| c["readings"].as_array().unwrap().len())
@@ -64,7 +64,7 @@ fn test_wire_round_trip_preserves_decisions() {
         let name = case["name"].as_str().unwrap();
         let flow = case["flow"].as_str().unwrap();
         let g = parse(flow);
-        let parts = q::build_partitions(&g);
+        let parts = q::build_partitions(&g).expect("the flow partitions");
 
         for entry in case["readings"].as_array().unwrap() {
             let reading = json_obj_to_reading(entry["reading"].as_object().unwrap());
@@ -91,7 +91,7 @@ fn test_wire_round_trip_is_stable() {
     let case = &corpus["cases"].as_array().unwrap()[0];
     let flow = case["flow"].as_str().unwrap();
     let g = parse(flow);
-    let parts = q::build_partitions(&g);
+    let parts = q::build_partitions(&g).expect("the flow partitions");
 
     let reading = json_obj_to_reading(case["readings"][0]["reading"].as_object().unwrap());
     let bits = w::encode_reading(&parts, &reading).unwrap();

@@ -1,6 +1,6 @@
 // Wire byte-identity vs the Python reference (the true 1-1 / cross-impl-interop property): the Rust wire
 // must emit the SAME Fibonacci bit-strings Python does, not merely self-round-trip. Expected bits are
-// frozen from the Python reference in tests/fixtures/wire_parity.json (regenerate from adapters/telemetry).
+// frozen from the Python reference in tests/fixtures/wire_parity.json (regenerate from prismpath/telemetry).
 use prismpath_rs::{parse, V};
 use prismpath_telemetry_rs::{quantizer as q, wire as w};
 use serde_json::Value;
@@ -16,13 +16,13 @@ fn reading_of(obj: &serde_json::Map<String, Value>) -> HashMap<String, V> {
 
 #[test]
 fn test_wire_bytes_match_python_and_decode_cross_impl() {
-    let corpus = load("../adapters/telemetry/conformance/decisions.json");
+    let corpus = load("../prismpath/telemetry/conformance/decisions.json");
     let fixture = load("tests/fixtures/wire_parity.json");
     let mut n = 0;
     for case in corpus["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let g = parse(case["flow"].as_str().unwrap());
-        let parts = q::build_partitions(&g);
+        let parts = q::build_partitions(&g).expect("the flow partitions");
         let py_bits = fixture[name].as_array().unwrap();
         for (i, entry) in case["readings"].as_array().unwrap().iter().enumerate() {
             let reading = reading_of(entry["reading"].as_object().unwrap());
@@ -44,5 +44,5 @@ fn test_wire_bytes_match_python_and_decode_cross_impl() {
             n += 1;
         }
     }
-    assert_eq!(n, 55, "expected 55 readings across the corpus");
+    assert_eq!(n, 72, "expected 72 readings across the corpus (v2)");
 }

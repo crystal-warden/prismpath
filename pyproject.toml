@@ -1,14 +1,15 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]      # 77 reads the SPDX license expression and license-files below
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "prismpath"
-version = "0.1.0"
+version = "0.1.1"
 description = "One Markdown file is the workflow: a routing spectrum (deterministic predicates -> embeddings -> LLM-on-doubt) for LLM-agent workflows, plus a gated sprint control plane."
 readme = "tools/mirror_readme.md"    # the lean product page renders on PyPI (absolute links); the
                                      # dense research README stays the repo landing
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Crystal Warden Labs" }]
 requires-python = ">=3.10"
 keywords = ["llm", "agents", "workflow", "orchestration", "markdown", "routing", "declarative"]
@@ -16,8 +17,9 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -53,14 +55,12 @@ test = ["pytest"]
 [project.scripts]
 prismpath = "prismpath.cli:main"
 
-[tool.setuptools]
-packages = [
-    "prismpath",
-    "prismpath.mission_control",   # the control plane's proving + observability command center
-    "prismpath.plugins",
-    "prismpath.plugins.pysprint",
-    "prismpath.tests",
-]
+[tool.setuptools.packages.find]
+# Every package under prismpath/ ships, found by its __init__.py, so a subpackage added to the tree
+# cannot be left out of the wheel by hand: the shipped test suite imports prismpath.comparisons and
+# prismpath.portable, and a hand kept list once omitted both (September 2026).
+where = ["."]
+include = ["prismpath*"]
 
 [tool.setuptools.package-data]
 # Everything here is READ AT RUNTIME by shipped code — not documentation. The prose docs live in
@@ -70,6 +70,7 @@ prismpath = ["flows/*.md",                    # example + reference flows
           "policies/*.md", "policies/*.json", # the guard's statutory floor + P1 lockfile
           "gallery/*.md", "gallery/*/*.md",   # `prismpath init --template` copies these
           "tests/fixtures/broken/*.md",       # the analyzer's broken-flow corpus (test_analysis)
+          "telemetry/conformance/*.json",     # the frozen Facet corpora every other implementation is judged by
           "*.html",
           "portable/*.mjs", "portable/*.html",
           "portable/conformance/*.json"]      # the frozen kernel spec
@@ -94,7 +95,9 @@ prismpath = ["flows/*.md",                    # example + reference flows
 [project.urls]
 Homepage = "https://github.com/crystal-warden/prismpath"     # the clean product mirror (browse + quickstart)
 Repository = "https://github.com/crystal-warden/prism-path"  # source, issues, PRs (the mirror is generated)
+Documentation = "https://github.com/crystal-warden/prism-path/blob/main/docs/README.md"
 "Getting Started" = "https://github.com/crystal-warden/prism-path/blob/main/GETTING_STARTED.md"
 Specification = "https://github.com/crystal-warden/prism-path/blob/main/SPEC.md"
+Issues = "https://github.com/crystal-warden/prism-path/issues"
 Changelog = "https://github.com/crystal-warden/prism-path/blob/main/CHANGELOG.md"
 Security = "https://github.com/crystal-warden/prism-path/blob/main/SECURITY.md"

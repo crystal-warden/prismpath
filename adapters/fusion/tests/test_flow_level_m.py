@@ -10,9 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from prismpath import predicates
-from prismpath.model_check import flow_level_m
-from prismpath.parser import parse
+from prismpath.kernel import predicates
+from prismpath.kernel.model_check import flow_level_m
+from prismpath.kernel.parser import parse
+from prismpath.kernel import analysis
 
 ADAPTER = Path(__file__).resolve().parent.parent
 FLOW_PATH = ADAPTER / "flows" / "fusion_triage.md"
@@ -48,7 +49,7 @@ def test_flow_is_level_m():
 
 
 def test_flow_validates_clean():
-    assert GRAPH.validate() == []
+    assert analysis.errors(GRAPH) == []
 
 
 def test_pure_level_m_flow_needs_no_lockfile():

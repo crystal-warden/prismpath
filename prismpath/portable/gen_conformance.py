@@ -32,9 +32,9 @@ import random
 import sys
 from pathlib import Path
 
-from prismpath import predicates
-from prismpath.engine import run
-from prismpath.parser import parse
+from prismpath.kernel import predicates
+from prismpath.kernel.engine import run
+from prismpath.kernel.parser import parse
 
 OUT_DIR = Path(__file__).parent / "conformance"
 VERSION = 2   # v2: signed integer literals fold to constants (predicates.fold_unary_signs)
@@ -139,11 +139,52 @@ CURATED = [
     ('when a < b', {"a": "apple", "b": "banana"}),
     ('when a == b', {"a": "café", "b": "café"}),
     ('when "é" in s', {"s": "café"}),
+    # ---- the reading boundary (October 2026). The engine semantics every boundary must preserve,
+    # pinned where no vector reached before: a string that spells a number is never that number, a
+    # fraction beside an integer cut is never rounded, integers stay exact up to the edge of the
+    # portable domain, and absence is its own value under membership, negation and inequality.
+    # a numeric string: never ordered against a number, never equal to one
+    ("when x >= 5", {"x": "5"}),
+    ("when x < 5", {"x": "5"}),
+    ("when x == 5", {"x": "5"}),
+    ("when x != 5", {"x": "5"}),
+    ("when x in [5, 6]", {"x": "5"}),
+    ("when x not in [5, 6]", {"x": "5"}),
+    ("when x", {"x": "0"}),                                # a non-empty string is truthy
+    # a fraction beside an integer cut
+    ("when x < 3", {"x": 2.999999}),
+    ("when x >= 3", {"x": 2.999999}),
+    ("when x <= 3", {"x": 3.000001}),
+    ("when x == 3", {"x": 3.0}),
+    ("when x in [3, 7]", {"x": 3.5}),
+    ("when x < 0", {"x": -0.5}),
+    ("when x >= 0", {"x": -0.0}),
+    # integers at the edge of the portable domain, plus or minus 2^53 minus 1, exact in every kernel
+    ("when x > 9007199254740990", {"x": 9007199254740991}),
+    ("when x == 9007199254740991", {"x": 9007199254740991}),
+    ("when x < -9007199254740990", {"x": -9007199254740991}),
+    # absence: a missing field and an explicit null are one value, never zero, false or empty
+    ("when x in [1, 2]", {}),
+    ("when x not in [1, 2]", {}),
+    ("when x not in []", {}),
+    ("when x in [None]", {}),
+    ("when x in [None]", {"x": None}),
+    ("when x not in [None, 1]", {}),
+    ("when x != None", {}),
+    ("when x != None", {"x": 0}),
+    ("when x == None", {"x": 0}),
+    ("when x == None", {"x": False}),
+    ("when x == None", {"x": ""}),
+    ("when not (x < 5)", {}),
+    ("when not (x >= 5)", {"x": None}),
+    ("when x", {"x": None}),
+    ("when x < 5 or x >= 5", {}),
+    ("when x != 5", {}),
 ]
 
 
 # ------------------------------------------------------------------- seeded grammar fuzz
-def _gen_fuzz(rng: random.Random, n: int):
+def _gen_fuzz(rng: random.Random, case_count: int):
     """A compact generator over the ALLOWED grammar, biased toward the tricky classes. Purely
     seeded — same seed, same corpus."""
     names = ["x", "y", "n", "flag", "items", "text", "action", "score", "ok", "true", "visits"]
@@ -151,14 +192,14 @@ def _gen_fuzz(rng: random.Random, n: int):
     nums = [0, 1, 2, 3, -0.0, 0.5, 1.0, 10, 1000]
 
     def value(depth=0):
-        r = rng.random()
-        if r < 0.25:
+        draw = rng.random()
+        if draw < 0.25:
             return rng.choice(names)
-        if r < 0.45:
+        if draw < 0.45:
             return repr(rng.choice(strings))
-        if r < 0.6:
+        if draw < 0.6:
             return repr(rng.choice(nums)) if rng.random() < 0.9 else rng.choice(["True", "False", "None"])
-        if r < 0.75 and depth < 2:
+        if draw < 0.75 and depth < 2:
             elts = ", ".join(value(depth + 1) for _ in range(rng.randint(0, 3)))
             return f"[{elts}]"
         return rng.choice(names)
@@ -173,33 +214,33 @@ def _gen_fuzz(rng: random.Random, n: int):
         return " ".join(parts)
 
     def expr(depth=0):
-        r = rng.random()
-        if r < 0.15 and depth < 3:
+        draw = rng.random()
+        if draw < 0.15 and depth < 3:
             return f"not {expr(depth + 1)}"
-        if r < 0.4 and depth < 3:
+        if draw < 0.4 and depth < 3:
             joiner = rng.choice([" and ", " or "])
             return joiner.join(expr(depth + 1) for _ in range(2))
-        if r < 0.5 and depth < 3:
+        if draw < 0.5 and depth < 3:
             return f"({expr(depth + 1)})"
         return comparison(depth)
 
     def ctx():
-        c = {}
+        context = {}
         for name in rng.sample(names, rng.randint(0, 6)):
-            r = rng.random()
-            if r < 0.3:
-                c[name] = rng.choice(nums)
-            elif r < 0.5:
-                c[name] = rng.choice(strings)
-            elif r < 0.65:
-                c[name] = rng.choice([True, False, None])
-            elif r < 0.85:
-                c[name] = [rng.choice(nums + strings) for _ in range(rng.randint(0, 3))]
+            draw = rng.random()
+            if draw < 0.3:
+                context[name] = rng.choice(nums)
+            elif draw < 0.5:
+                context[name] = rng.choice(strings)
+            elif draw < 0.65:
+                context[name] = rng.choice([True, False, None])
+            elif draw < 0.85:
+                context[name] = [rng.choice(nums + strings) for _ in range(rng.randint(0, 3))]
             else:
-                c[name] = {"k": rng.choice(nums)}
-        return c
+                context[name] = {"k": rng.choice(nums)}
+        return context
 
-    return [(f"when {expr()}", ctx()) for _ in range(n)]
+    return [(f"when {expr()}", ctx()) for _ in range(case_count)]
 
 
 def _expect(cond: str, ctx: dict):
@@ -239,7 +280,7 @@ def generate() -> dict:
         "version": VERSION, "seed": SEED,
         "note": "expect: true|false = eval_condition result; 'ERROR' = PredicateError "
                 "(edge non-matching at run time). Any implementation must match every case.",
-        "cases": [{"cond": c, "ctx": ctx, "expect": _expect(c, ctx)} for c, ctx in cases],
+        "cases": [{"cond": condition, "ctx": ctx, "expect": _expect(condition, ctx)} for condition, ctx in cases],
     }
     flows_doc = {
         "version": VERSION,
@@ -259,8 +300,8 @@ def main() -> int:
         path = OUT_DIR / name
         path.write_text(json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False) + "\n",
                         encoding="utf-8")
-        n = len(doc["cases"])
-        print(f"wrote {path}  ({n} cases)")
+        case_count = len(doc["cases"])
+        print(f"wrote {path}  ({case_count} cases)")
     return 0
 
 

@@ -10,8 +10,8 @@ You declare the node `@code` (see below), write a handler `(node, instruction, s
 register it:
 
 ```python
-from prismpath.code_nodes import code_agent, in_process_runner
-from prismpath.engine import run
+from prismpath.workers.code_nodes import code_agent, in_process_runner
+from prismpath.kernel.engine import run
 
 def extract(node, instruction, state):
     return {"amount": parse_amount(state["request"])}      # emit the fields the edges route on
@@ -20,7 +20,7 @@ agent = code_agent(graph, {"extract": extract}, runner=in_process_runner)
 run(graph, agent)
 ```
 
-It rides the same worker seam as mdflow and CLI workers (`prismpath/connector.py`), specialized to a
+It rides the same worker seam as mdflow and CLI workers (`prismpath/workers/connector.py`), specialized to a
 function. A full runnable example is in
 [`prismpath/examples/code_nodes/`](../../prismpath/examples/code_nodes/README.md).
 
@@ -83,7 +83,7 @@ A worker can do two things (emit text or execute code), and the two have **oppos
   ours refuses instead. There is no upstream party whose job this is.
 - **Content is the model's.** Whether generated text is *harmful* is owned by the model and its
   provider's moderation, not the routing layer. PrismPath delegates it. An optional deny floor
-  (`prismpath/guard.py`) is available for the weak local model case, and you can compose a guardrail at
+  (`prismpath/safety/guard.py`) is available for the weak local model case, and you can compose a guardrail at
   the worker boundary, but it is **not** a kernel feature. See `docs/design/spec-guard-onion.md`.
 
 ## Scope

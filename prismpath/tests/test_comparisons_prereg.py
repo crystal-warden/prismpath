@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Crystal Warden Supply Chain Labs LLC
+"""The layer comparison pre registration gate (prismpath/comparisons/PREREGISTRATION.md).
+
+Three things are pinned here. The neutral corpus must be self consistent: every scenario's written
+expectation is recomputed from its own policy under the neutral semantics. The freeze hash over
+the protocol, the result contract, the corpus format, and every policy must equal the committed
+PREREGISTRATION.lock, so any edit after the freeze surfaces here and has to be recorded as an
+amendment. And the protocol document must actually name every corpus policy and every dimension,
+so the predictions table cannot drift from the corpus.
+"""
+import re
+from pathlib import Path
+
+import pytest
+
+from prismpath.comparisons import corpus_check as cc
+from prismpath.tests._repo import repo_file
+
+COMP = repo_file("prismpath", "comparisons", "PREREGISTRATION.lock").parent
+
+
+def test_corpus_is_self_consistent():
+    errors = cc.check_corpus()
+    assert errors == [], "\n".join(errors)
+
+
+def test_malformed_cmp_is_a_corpus_error():
+    # a short cmp used to unpack into a bare ValueError, which reads as a harness crash rather than
+    # as the corpus defect it is
+    with pytest.raises(cc.CorpusError):
+        cc.evaluate({"cmp": ["amount", ">"]}, {"amount": 5}, {})
+
+
+def test_corpus_shape_matches_the_protocol_summary():
+    policies = cc.load_corpus()
+    assert len(policies) == 6
+    n_sc = sum(len(policy["scenarios"]) for _, policy in policies)
+    n_lc = sum(len(policy.get("lifecycle", [])) for _, policy in policies)
+    assert n_sc == 61
+    assert n_lc == 5
+    level_m = [policy["id"] for _, policy in policies if policy["level_m_claim"]]
+    assert sorted(level_m) == ["ai_action_gate", "expense_approval", "network_admission", "sensor_interlock"]
+
+
+def test_freeze_hash_matches_the_lock():
+    locked = cc.read_lock()
+    assert locked is not None, "PREREGISTRATION.lock missing; run corpus_check --freeze once, then commit it"
+    current = cc.freeze_hash()
+    assert current == locked, (
+        "a frozen pre registration file changed after the freeze; record an amendment in "
+        "PREREGISTRATION.md section 12 and regenerate the lock with corpus_check --freeze"
+    )
+
+
+def test_lock_lists_every_frozen_file():
+    lock = (COMP / "PREREGISTRATION.lock").read_text(encoding="utf-8")
+    for path in cc.frozen_paths():
+        assert path.relative_to(COMP).as_posix() in lock
+
+
+def test_protocol_names_every_policy_and_dimension():
+    doc = (COMP / "PREREGISTRATION.md").read_text(encoding="utf-8")
+    for _path, pol in cc.load_corpus():
+        assert f"`{pol['id']}`" in doc, f"policy {pol['id']} not named in PREREGISTRATION.md"
+    for dim in sorted(cc.DIMENSIONS):
+        assert re.search(rf"^\| {dim} \|", doc, re.M), f"no prediction row for {dim}"
+        assert re.search(rf"\*\*{dim}\.", doc), f"no dimension definition for {dim}"
+
+
+def test_neutral_evaluator_semantics():
+    pol = {"rules": [
+        {"id": "r1", "if": {"cmp": ["x", ">", 5]}, "then": "allow"},
+        {"id": "r2", "if": {"any": [{"missing": "flag"}, {"cmp": ["flag", "==", False]}]}, "then": "abstain"},
+    ], "fields": {}}
+    assert cc.decide(pol, {"x": 6, "flag": True}) == ("allow", "r1")
+    assert cc.decide(pol, {"x": 2}) == ("abstain", "r2")          # missing flag
+    assert cc.decide(pol, {"flag": True}) == ("no_match", None)    # missing x is unsatisfied, never an error
+    assert cc.decide(pol, {"x": True, "flag": True}) == ("no_match", None)  # a bool never orders against an int
+
+
+def test_rebac_reference_derivation():
+    pol = next(policy for _, policy in cc.load_corpus() if policy["id"] == "document_sharing_rebac")
+    model = pol["model"]
+    assert cc._related(model, "user:alice", "viewer", "doc:d1")      # group -> folder -> doc
+    assert cc._related(model, "user:dana", "viewer", "doc:d2")       # folder -> doc
+    assert cc._related(model, "user:bob", "viewer", "doc:d2")        # direct
+    assert not cc._related(model, "user:bob", "viewer", "doc:d1")
+    assert not cc._related(model, "user:carol", "viewer", "doc:d1")
+
+
+def test_matrix_on_the_committed_results_dir_is_all_untested_or_valid(tmp_path):
+    from prismpath.comparisons.matrix import build_matrix
+    data = build_matrix(COMP / "results")
+    for dim, row in data["matrix"].items():
+        for sys_id, cell in row.items():
+            assert cell["grade"] in ("UNTESTED", "NATIVE", "WITH-WORK", "NOT")
+    assert set(data["verdicts"]) == cc.DIMENSIONS

@@ -38,23 +38,35 @@ pub fn encode_reading(
     encode_reading_with_codec(&FibonacciWireCodec, parts, reading)
 }
 
+/// A reading through any symbol codec, or the reason it is refused. Since October 2026 this is the
+/// checked path: a missing field or a value acceptance refuses is a refusal naming the field, the
+/// same as `encode_reading_checked`, because the permissive path no longer parsed, truncated or
+/// coerced anything that could tell the two apart. A flow that defines its fields encodes a missing
+/// field as its absent cell when the definition allows absence.
 pub fn encode_reading_with_codec<C: WireCodec>(
     codec: &C,
     parts: &HashMap<String, FieldPartition>,
     reading: &HashMap<String, V>,
 ) -> Result<String, String> {
     let ord = order(parts);
-    let missing: Vec<&str> = ord
-        .iter()
-        .filter(|f| !reading.contains_key(*f))
-        .map(|s| s.as_str())
-        .collect();
-    if !missing.is_empty() {
-        return Err(format!("reading missing decision fields: {:?}", missing));
-    }
-    let syms = quantizer::quantize(parts, reading)?;
+    let syms = quantizer::checked_quantize(parts, reading).map_err(|error| error.to_string())?;
     let wire_vals: Vec<usize> = ord.iter().map(|f| syms[f] + 1).collect();
     codec.encode_symbols(&wire_vals)
+}
+
+/// `encode_reading` behind acceptance: a value the contract refuses is an
+/// `AcceptanceError` naming the field and the reason, never a truncated, coerced or zero
+/// reading. Encode through this at a runtime boundary; a preflight run over the same sample reports
+/// exactly the refusals this returns.
+pub fn encode_reading_checked(
+    parts: &HashMap<String, FieldPartition>,
+    reading: &HashMap<String, V>,
+) -> Result<String, quantizer::AcceptanceError> {
+    let field_order = order(parts);
+    let symbols = quantizer::checked_quantize(parts, reading)?;
+    let wire_values: Vec<usize> = field_order.iter().map(|field| symbols[field] + 1).collect();
+    FibonacciWireCodec.encode_symbols(&wire_values).map_err(|_| quantizer::AcceptanceError {
+        field: String::new(), refusal: quantizer::InputRefusal::OutOfRange })
 }
 
 pub fn decode_reading(

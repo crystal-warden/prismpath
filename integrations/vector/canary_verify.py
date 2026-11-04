@@ -11,6 +11,11 @@ the decoded leg actually carried. It checks three things: the two captures carry
 events, every position routes identically, and the per route distributions agree. Any daylight
 between the legs is listed with the offending events.
 
+Route parity alone cannot see a lost event replaced by a duplicate that takes the same route. When
+both legs carry an event identity, `--id-field` turns on the strict mode: the identities of the
+encodable raw events and of the decoded events must be the same sequence, with no duplicate, no
+missing and no reordered identity. Captures without an identity field keep the route only mode.
+
 Usage:
   canary_verify.py FLOW.md --raw raw.ndjson --decoded decoded.ndjson --route-node NODE
                    [--route-field facet_route] [--map FIELD=PATH ...] [--json OUT.json]
@@ -26,14 +31,17 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-_TELEMETRY = Path(__file__).resolve().parent.parent.parent / "adapters" / "telemetry"
-sys.path.insert(0, str(_TELEMETRY))
-sys.path.insert(0, str(_TELEMETRY.parent.parent))
+# Imported as a module (python -m integrations.vector.canary_verify) the repository root is already
+# on sys.path. Run as a plain script against an uninstalled checkout it is not, and that is how the
+# verifier is invoked in the field, so the root goes on the path for that case.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-import preflight  # noqa: E402  (extract_reading + _codec_view: the codec's exact view of an event)
-import quantizer as q  # noqa: E402
-import wire as w  # noqa: E402
-from prismpath.parser import parse_file  # noqa: E402
+from prismpath.kernel.parser import parse_file  # noqa: E402
+from prismpath.telemetry import preflight  # noqa: E402  (extract_reading + the codec's exact view of an event)
+from prismpath.telemetry import quantizer  # noqa: E402
+from prismpath.telemetry import wire  # noqa: E402
 
 
 def _read_ndjson(path: str) -> Tuple[List[dict], int]:
@@ -55,6 +63,35 @@ def _read_ndjson(path: str) -> Tuple[List[dict], int]:
     return events, bad
 
 
+def _lookup(event: dict, dotted_path: str):
+    """The value at a dotted path in a raw event, None when any segment is absent."""
+    value: Any = event
+    for segment in dotted_path.split("."):
+        if not isinstance(value, dict) or segment not in value:
+            return None
+        value = value[segment]
+    return value
+
+
+def _compare_identities(raw_ids: List[Any], decoded_ids: List[Any]) -> dict:
+    """The strict comparison: the decoded identities must be the raw identities in order, each once.
+
+    A lost event that a duplicate stands in for keeps the route counts intact and fails here, because
+    the lost identity is missing and the duplicate's identity appears twice. An event without an
+    identity on either leg is counted, never guessed."""
+    unidentified = sum(1 for identifier in raw_ids + decoded_ids if identifier is None)
+    raw_counts, decoded_counts = Counter(raw_ids), Counter(decoded_ids)
+    missing = [identifier for identifier in raw_ids if decoded_counts[identifier] == 0]
+    duplicated = sorted({identifier for identifier, count in decoded_counts.items() if count > 1 and identifier is not None}, key=str)
+    extra = [identifier for identifier in decoded_ids if raw_counts[identifier] == 0]
+    reordered = sum(1 for raw_id, decoded_id in zip(raw_ids, decoded_ids) if raw_id != decoded_id)
+    ok = not missing and not duplicated and not extra and unidentified == 0 and reordered == 0 and len(raw_ids) == len(decoded_ids)
+    return {"ok": ok, "missing": [str(identifier) for identifier in missing],
+            "duplicated": [str(identifier) for identifier in duplicated],
+            "extra": [str(identifier) for identifier in extra],
+            "unidentified": unidentified, "reordered": reordered}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog="canary-verify",
@@ -68,18 +105,23 @@ def main() -> int:
                     help="field carrying the decoded route (default: facet_route, the codec default)")
     ap.add_argument("--map", action="append", default=[], metavar="FIELD=PATH",
                     help="flow field -> raw event path, matching the encoder's field_paths")
+    ap.add_argument("--id-field", default=None, metavar="RAW_PATH",
+                    help="strict mode: the raw event path carrying a per event identity (dotted path allowed); "
+                         "the decoded leg must carry the same identity in sequence")
+    ap.add_argument("--decoded-id-field", default=None, metavar="NAME",
+                    help="the decoded event field carrying the identity (default: the last segment of --id-field)")
     ap.add_argument("--json", dest="json_out", default=None, metavar="OUT.json",
                     help="also write the full comparison as JSON")
     args = ap.parse_args()
 
     field_paths: Dict[str, str] = {}
     for m in args.map:
-        f, _, p = m.partition("=")
-        field_paths[f] = p
+        field, _, raw_path = m.partition("=")
+        field_paths[field] = raw_path
 
     graph = parse_file(args.flow)
-    parts = q.build_partitions(graph)
-    if args.route_node not in w.decision_nodes(graph):
+    parts = quantizer.build_partitions(graph)
+    if args.route_node not in wire.decision_nodes(graph):
         ap.error(f"--route-node {args.route_node!r} is not a decision node of the flow")
     order = sorted(parts.keys())
 
@@ -95,25 +137,35 @@ def main() -> int:
             expected.append(None)          # the encoder dropped it; no decoded twin should exist
             continue
         try:
-            seen, _trunc = preflight._codec_view(parts, reading)
-            w.encode_reading(parts, seen)
+            seen = preflight._codec_view(parts, reading)
+            # the encoder refuses whatever acceptance refuses (a fraction, a numeric string), so such an
+            # event has no decoded twin
+            wire.encode_reading(parts, seen)
         except (TypeError, ValueError, KeyError):
             unencodable += 1
             expected.append(None)
             continue
-        expected.append(w.route_node(graph, args.route_node, seen) or "(no match)")
+        expected.append(wire.route_node(graph, args.route_node, seen) or "(no match)")
 
-    exp_routes = [r for r in expected if r is not None]
+    exp_routes = [route for route in expected if route is not None]
     got_routes = [str(ev.get(args.route_field, "(absent)")) for ev in decoded]
 
+    identity = None
+    if args.id_field:
+        decoded_id_field = args.decoded_id_field or args.id_field.split(".")[-1]
+        raw_ids = [_lookup(event, args.id_field) for event, route in zip(raw, expected) if route is not None]
+        decoded_ids = [event.get(decoded_id_field) for event in decoded]
+        identity = _compare_identities(raw_ids, decoded_ids)
+
     mismatches: List[dict] = []
-    for i, (e, g) in enumerate(zip(exp_routes, got_routes)):
-        if e != g and len(mismatches) < 10:
-            mismatches.append({"position": i, "expected": e, "decoded": g})
+    for position, (expected_route, decoded_route) in enumerate(zip(exp_routes, got_routes)):
+        if expected_route != decoded_route and len(mismatches) < 10:
+            mismatches.append({"position": position, "expected": expected_route, "decoded": decoded_route})
     count_drift = len(exp_routes) - len(got_routes)
     exp_dist, got_dist = Counter(exp_routes), Counter(got_routes)
     ok = not mismatches and count_drift == 0 and exp_dist == got_dist \
-        and len(exp_routes) > 0 and raw_bad == 0 and dec_bad == 0
+        and len(exp_routes) > 0 and raw_bad == 0 and dec_bad == 0 \
+        and (identity is None or identity["ok"])
 
     md = [f"# canary-verify: {Path(args.flow).name} at `{args.route_node}`", "",
           f"- raw leg: {len(raw)} events" + (f" ({raw_bad} unparseable lines)" if raw_bad else "")
@@ -134,9 +186,20 @@ def main() -> int:
                   f"MISMATCHES** (first shown; usual causes: flow version skew between the legs, "
                   f"an unpinned policy edited on one side, or field_paths that differ from the "
                   f"encoder's):")
-        for m in mismatches:
-            md.append(f"- event {m['position']}: raw leg routes `{m['expected']}`, "
-                      f"decoded leg carried `{m['decoded']}`")
+        for mismatch in mismatches:
+            md.append(f"- event {mismatch['position']}: raw leg routes `{mismatch['expected']}`, "
+                      f"decoded leg carried `{mismatch['decoded']}`")
+        md.append("")
+    if identity is not None:
+        md.append(f"**IDENTITY** (strict mode on `{args.id_field}`): "
+                  + ("every decoded event is the raw event at the same position, none lost, none duplicated."
+                     if identity["ok"] else
+                     f"{len(identity['missing'])} lost, {len(identity['duplicated'])} duplicated, "
+                     f"{identity['unidentified']} without identity, {identity['reordered']} out of sequence."))
+        for identifier in identity["missing"][:10]:
+            md.append(f"- raw event `{identifier}` has no decoded twin")
+        for identifier in identity["duplicated"][:10]:
+            md.append(f"- decoded identity `{identifier}` appears more than once")
         md.append("")
     md.append("**PARITY.** Every decoded route matches the raw leg; the Facet wire is carrying "
               "your decisions faithfully." if ok else
@@ -149,7 +212,7 @@ def main() -> int:
             "raw_events": len(raw), "decoded_events": len(decoded),
             "unencodable_raw": unencodable, "count_drift": count_drift,
             "raw_distribution": dict(exp_dist), "decoded_distribution": dict(got_dist),
-            "mismatches": mismatches, "parity": ok}, indent=1) + "\n")
+            "mismatches": mismatches, "identity": identity, "parity": ok}, indent=1) + "\n")
         print(f"\nwrote {args.json_out}")
     return 0 if ok else 1
 

@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Crystal Warden Supply Chain Labs LLC
+"""Preflight reports acceptance's refusals field by field and withholds READY on them,
+and a clean sample that the contract accepts is READY with an empty refusal map, so a passing
+preflight predicts exactly what the checked encoder will do."""
+import json
+
+from prismpath.telemetry import preflight
+
+FLOW = "---\nname: t\nstart: a\n---\n## a\n-> hot: when temp >= 90 and armed\n-> warm: when temp >= 50\n-> cold: else\n## hot\n## warm\n## cold\n"
+
+
+def _scan(lines):
+    from prismpath.kernel.parser import parse
+    from prismpath.telemetry import quantizer, wire
+    graph = parse(FLOW)
+    parts = quantizer.build_partitions(graph)
+    result = preflight.scan_sample(parts, lines, graph, wire.decision_nodes(graph), {}, flow="flow.md", sample="sample.ndjson")
+    return preflight.render_json(result)
+
+
+def test_refusals_are_reported_and_block_ready():
+    report = _scan(['{"temp": 95, "armed": true}', '{"temp": "hot", "armed": true}', '{"temp": 2.5, "armed": "yes"}'])
+    assert report["refused_by_field"] == {"armed": {"wrong_type": 1}, "temp": {"wrong_type": 1, "fractional": 1}}
+    # "hot" and 2.5 both: the encoder places neither, since a fraction is refused, never truncated to 2.
+    # "yes" on the boolean field is placed by neither encoder either: since October 2026 there is no
+    # truthiness path left that read it as true.
+    assert report["out_of_partition"] == {"temp": 2, "armed": 1}
+    assert report["ready"] is False
+
+
+def test_clean_sample_has_no_refusals_and_is_ready():
+    report = _scan(['{"temp": 95, "armed": true}', '{"temp": 10, "armed": false}', '{"temp": 60, "armed": 1}'])
+    assert report["refused_by_field"] == {}
+    assert report["ready"] is True
+
+
+def test_a_numeric_string_is_refused_not_parsed():
+    # Accepted as 60 until October 2026, which routed it where the engine, comparing a string with a
+    # number, would not. The adapter parses; the boundary only refuses.
+    report = _scan(['{"temp": "60", "armed": 1}'])
+    assert report["refused_by_field"] == {"temp": {"wrong_type": 1}}
+    assert report["ready"] is False

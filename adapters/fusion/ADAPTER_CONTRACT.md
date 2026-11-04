@@ -26,6 +26,10 @@ map as follows, with the unimplemented ones named rather than hand-waved:
 - **Every threshold is a real operational boundary.** 150 / 500 / 2500 dev_mg are the sensor bridge's
   own DEADBAND / MOVE_DEV / SHAKE_DEV constants (×1000); 7 and 12 are the triage flow's own floor and
   containment line (the `wazuh_triage` flow's edges). No constant exists to shape the decision space.
+- **Numbers are converted explicitly, never truncated.** `projection.whole_number` is the one path from
+  a source value to `dev_mg` or `rule_level`. An integer or an integral float passes, and a fraction, an
+  infinity, a bool or a string is refused with the field named. Until October 2026 the projection used
+  `int()`, which truncated toward zero and could move a value across one of the cuts above.
 - **Escalation-default at the join.** Coincidence of physical disturbance and a containment-grade cyber
   verdict is the worst case and is checked first; "all quiet" must be shown on both axes (`else` last).
 - **Two cyber paths, one field.** `soc_action` is fed either by the decidable projection of
@@ -41,7 +45,7 @@ map as follows, with the unimplemented ones named rather than hand-waved:
 ## Runtime
 
 Offline by default: tests, the census, and the benches all run on fixtures and the frozen corpus, so
-no external source is needed. Cross-adapter imports (telemetry codec modules) use the repo's
-self-rooted `sys.path` idiom; this adapter modifies neither. A live decision source is an external
+no external source is needed. Cross-adapter imports (telemetry codec modules) are plain package
+imports from the repository root; this adapter modifies neither. A live decision source is an external
 connector: the archived v1 SIEM connector was one example; any source that emits the reading contract
 in `projection.py` slots in without touching the join or its proofs.

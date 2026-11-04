@@ -1,5 +1,5 @@
 //! The same contract the Python reference tool's tests pin, exercised against the compiled
-//! binary — plus the one place the Rust value model differs (string-to-0 coercion), which this
+//! binary, plus acceptance finding a string on a numeric field raises, which this
 //! tool must surface precisely BECAUSE the reference errors there instead.
 
 use std::path::PathBuf;
@@ -41,9 +41,9 @@ fn clean_sample_is_ready() {
     let (flow, sample, out) = setup("clean", &[
         r#"{"temp": 95, "armed": true}"#, r#"{"temp": 60, "armed": false}"#,
         r#"{"temp": 10, "armed": true}"#, r#"{"temp": 89, "armed": true}"#]);
-    let r = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
+    let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
                   "--json", out.to_str().unwrap()]);
-    assert_eq!(r.status.code(), Some(0), "{}", String::from_utf8_lossy(&r.stdout));
+    assert_eq!(result.status.code(), Some(0), "{}", String::from_utf8_lossy(&result.stdout));
     let rep = report(&out);
     assert_eq!(rep["ready"], true);
     assert_eq!(rep["encoded"], 4);
@@ -57,11 +57,11 @@ fn clean_sample_is_ready() {
 fn missing_field_error_vs_skip() {
     let (flow, sample, out) = setup("missing", &[
         r#"{"temp": 95, "armed": true}"#, r#"{"temp": 60}"#]);
-    let r = run(&[flow.to_str().unwrap(), sample.to_str().unwrap()]);
-    assert_eq!(r.status.code(), Some(1));           // on_missing=error, the codec default
-    let r = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
+    let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap()]);
+    assert_eq!(result.status.code(), Some(1));           // on_missing=error, the codec default
+    let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
                   "--on-missing", "skip", "--json", out.to_str().unwrap()]);
-    assert_eq!(r.status.code(), Some(0));           // skip is declared codec behavior
+    assert_eq!(result.status.code(), Some(0));           // skip is declared codec behavior
     let rep = report(&out);
     assert_eq!(rep["encoded"], 1);
     assert_eq!(rep["missing_by_field"]["armed"], 1);
@@ -72,11 +72,11 @@ fn map_reaches_nested_fields() {
     let (flow, sample, out) = setup("map", &[
         r#"{"sensor": {"temp": 95}, "armed": true}"#,
         r#"{"sensor": {"temp": 20}, "armed": false}"#]);
-    let r = run(&[flow.to_str().unwrap(), sample.to_str().unwrap()]);
-    assert_eq!(r.status.code(), Some(1));           // temp never seen without the map
-    let r = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
+    let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap()]);
+    assert_eq!(result.status.code(), Some(1));           // temp never seen without the map
+    let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
                   "--map", "temp=sensor.temp", "--json", out.to_str().unwrap()]);
-    assert_eq!(r.status.code(), Some(0));
+    assert_eq!(result.status.code(), Some(0));
     let rep = report(&out);
     assert_eq!(rep["encoded"], 2);
     assert_eq!(rep["fields_never_seen"].as_array().unwrap().len(), 0);
@@ -85,33 +85,39 @@ fn map_reaches_nested_fields() {
 }
 
 #[test]
-fn string_coercion_to_zero_is_surfaced_and_blocks_ready() {
-    // The Rust crates coerce an unparseable string on a numeric field to 0 (the Python
-    // reference errors instead). The Rust preflight must therefore encode the event AND flag it.
-    let (flow, sample, out) = setup("coerce", &[
-        r#"{"temp": "not-a-number", "armed": true}"#, r#"{"temp": 50, "armed": false}"#]);
-    let r = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
-                  "--json", out.to_str().unwrap()]);
-    assert_eq!(r.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&r.stdout).contains("COERCED TO 0"));
+fn acceptance_refusal_is_surfaced_and_blocks_ready() {
+    // A string that is not an integer literal on a numeric field is refused by acceptance
+    // and by the encoder alike, on both sides of the stack: the event is out of partition for the
+    // permissive encoder and refused by the contract, and neither lets it become a zero reading.
+    let (flow, sample, out) = setup("contract", &[
+        r#"{"temp": 95, "armed": true}"#,
+        r#"{"temp": "hot", "armed": true}"#,
+    ]);
+    let output = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(), "--json", out.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
     let rep = report(&out);
-    assert_eq!(rep["encoded"], 2);                  // both encode: coercion is not an error here
-    assert_eq!(rep["coerced_to_zero_by_field"]["temp"], 1);
-    assert_eq!(rep["out_of_partition"].as_object().unwrap().len(), 0);
+    assert_eq!(rep["encoded"], 1);
+    assert_eq!(rep["out_of_partition"]["temp"], 1);
+    assert_eq!(rep["refused_by_field"]["temp"]["wrong_type"], 1);   // unparseable_string until corpus v2
+    assert!(rep.get("coerced_to_zero_by_field").is_none());
+    assert_eq!(rep["ready"], false);
 }
 
 #[test]
-fn float_truncation_counted_and_null_is_missing() {
+fn a_fraction_is_refused_not_truncated_and_null_is_missing() {
     let (flow, sample, out) = setup("trunc", &[
-        r#"{"temp": 49.9, "armed": true}"#,          // truncates to 49 -> ok, counted
+        r#"{"temp": 49.9, "armed": true}"#,          // refused as fractional, never truncated to 49
         r#"{"temp": null, "armed": true}"#]);        // JSON null = missing, as in the codec
-    let r = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
+    let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(),
                   "--on-missing", "skip", "--json", out.to_str().unwrap()]);
-    assert_eq!(r.status.code(), Some(0));
+    assert_eq!(result.status.code(), Some(1), "a fraction is refused by acceptance");
     let rep = report(&out);
-    assert_eq!(rep["float_truncated_by_field"]["temp"], 1);
+    assert!(rep.get("float_truncated_by_field").is_none());
+    assert_eq!(rep["refused_by_field"]["temp"]["fractional"], 1);
     assert_eq!(rep["missing_by_field"]["temp"], 1);
-    assert_eq!(rep["route_distribution"]["classify"]["ok"], 1);
+    assert_eq!(rep["out_of_partition"]["temp"], 1, "the encoder cannot place it, as for any refused value");
+    assert_eq!(rep["encoded"], 0, "the fractional reading is not encoded under a truncated value");
+    assert_eq!(rep["ready"], false);
 }
 
 #[test]
@@ -122,13 +128,48 @@ fn no_decision_fields_flow_fails_loud() {
     std::fs::write(&flow, "---\nname: f\nstart: a\n---\n## a\n-> b: always\n## b\n").unwrap();
     let sample = dir.join("sample.ndjson");
     std::fs::write(&sample, "{\"x\": 1}\n").unwrap();
-    let r = run(&[flow.to_str().unwrap(), sample.to_str().unwrap()]);
-    assert_eq!(r.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&r.stdout).contains("no decision-relevant fields"));
+    let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap()]);
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stdout).contains("no decision-relevant fields"));
 }
 
 #[test]
 fn bad_usage_exits_two() {
-    let r = run(&["only-one-arg"]);
-    assert_eq!(r.status.code(), Some(2));
+    let result = run(&["only-one-arg"]);
+    assert_eq!(result.status.code(), Some(2));
+}
+
+const DEFINED_FLOW: &str = "---
+name: defined_guard
+start: classify
+field.load: fixed scale=100 unit=ratio rounding=floor min=0 max=100
+field.zone: category absent=allowed
+---
+## classify
+-> critical: when load >= 0.9
+-> unzoned: when zone == None
+-> warn: when load >= 0.5 and zone == \"a\"
+-> ok: else
+## critical
+## unzoned
+## warn
+## ok
+";
+
+#[test]
+fn a_defined_flow_is_judged_by_its_definitions() {
+    // The twin of the Python test of the same name: a numeric string is refused rather than parsed,
+    // a fraction is refused, and an absent zone is a routed value, not a missing field.
+    let (flow, sample, out) = setup("defined", &[
+        r#"{"load": 95, "zone": "a"}"#, r#"{"load": 60}"#, r#"{"load": 60, "zone": null}"#,
+        r#"{"load": 60, "zone": "a"}"#, r#"{"load": "60", "zone": "a"}"#, r#"{"load": 60.5, "zone": "a"}"#]);
+    std::fs::write(&flow, DEFINED_FLOW).unwrap();
+    let result = run(&[flow.to_str().unwrap(), sample.to_str().unwrap(), "--json", out.to_str().unwrap()]);
+    assert_eq!(result.status.code(), Some(1), "{}", String::from_utf8_lossy(&result.stdout));
+    let rep = report(&out);
+    assert_eq!(rep["refused_by_field"], serde_json::json!({"load": {"wrong_type": 1, "fractional": 1}}));
+    assert!(rep.get("missing_by_field").is_none_or(|missing| missing.as_object().is_none_or(|map| map.is_empty())));
+    assert_eq!(rep["encoded"], 4);
+    assert_eq!(rep["route_mismatches"], serde_json::json!([]));
+    assert_eq!(rep["ready"], false);
 }

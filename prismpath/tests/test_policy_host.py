@@ -6,18 +6,20 @@ failure at any stage leaves the previous policy active. Uses the real compiler +
 import sys
 from pathlib import Path
 
+import os
+
 import pytest
 
 pytest.importorskip("cryptography")
 
-from prismpath import policy_pack as pp  # noqa: E402
-from prismpath import policy_host as ph  # noqa: E402
-from prismpath.audit_log import AuditLog  # noqa: E402
-from prismpath.parser import parse  # noqa: E402
+from prismpath.hotswap import policy_pack as pp# noqa: E402
+from prismpath.hotswap import policy_host as ph# noqa: E402
+from prismpath.ledgers.audit_log import AuditLog  # noqa: E402
+from prismpath.kernel.parser import parse  # noqa: E402
 
-_hw = Path(__file__).resolve().parent.parent.parent / "prismpath-hw"
-if not (_hw / "ppt_compile.py").exists():
-    pytest.skip("prismpath-hw/ppt_compile not present", allow_module_level=True)
+from prismpath.tests._repo import repo_file
+
+_hw = repo_file("prismpath-hw")
 sys.path.insert(0, str(_hw))
 import ppt_compile as pc  # noqa: E402
 
@@ -59,17 +61,17 @@ def _host(env):
 
 def test_accepted_swap_becomes_active(env):
     host = _host(env)
-    r = host.swap(_pack(env, "v1", 1))
-    assert r["ok"] and r["version"] == 1
-    assert host.active()["active"] == r["active"]
+    swap_result = host.swap(_pack(env, "v1", 1))
+    assert swap_result["ok"] and swap_result["version"] == 1
+    assert host.active()["active"] == swap_result["active"]
 
 
 def test_swap_chain_reconstructs_from_ledger(env):
     host = _host(env)
     h1 = host.swap(_pack(env, "v1", 1))["active"]
     h2 = host.swap(_pack(env, "v2", 2, hot=80))["active"]
-    swaps = [e for e in host.history() if e["action"] == "swap"]
-    assert [s["data"]["to_hash"] for s in swaps] == [h1, h2]
+    swaps = [event for event in host.history() if event["action"] == "swap"]
+    assert [swap["data"]["to_hash"] for swap in swaps] == [h1, h2]
     assert swaps[1]["data"]["from_hash"] == h1          # chain is linked
     assert host.audit.verify_log()                       # Merkle-intact
 
@@ -77,9 +79,9 @@ def test_swap_chain_reconstructs_from_ledger(env):
 def test_rollback_replay_is_rejected_and_logged(env):
     host = _host(env)
     host.swap(_pack(env, "v2", 2))
-    r = host.swap(_pack(env, "v1", 1))                    # older version -> replay
-    assert not r["ok"] and any("version:not-monotonic" in x for x in r["reasons"])
-    rej = [e for e in host.history() if e["action"] == "swap_rejected"]
+    swap_result = host.swap(_pack(env, "v1", 1))                    # older version -> replay
+    assert not swap_result["ok"] and any("version:not-monotonic" in reason for reason in swap_result["reasons"])
+    rej = [event for event in host.history() if event["action"] == "swap_rejected"]
     assert len(rej) == 1 and host.active()["version"] == 2
 
 
@@ -96,17 +98,17 @@ def test_out_of_envelope_swap_rejected_active_unchanged(env):
     )).serialize())
     pp.build_pack(str(ppt), {"humidity": "int"}, version=2, envelope_id="env1",
                   priv_path=env["keys"]["private"], pub_path=env["keys"]["public"])
-    r = host.swap(str(ppt))
-    assert not r["ok"] and any("unknown-field" in x for x in r["reasons"])
+    swap_result = host.swap(str(ppt))
+    assert not swap_result["ok"] and any("unknown-field" in reason for reason in swap_result["reasons"])
     assert host.active() == before                        # untouched
 
 
 def test_tampered_image_rejected(env):
     host = _host(env)
-    p = _pack(env, "v1", 1)
-    raw = bytearray(Path(p).read_bytes()); raw[-1] ^= 1; Path(p).write_bytes(bytes(raw))
-    r = host.swap(p)
-    assert not r["ok"] and r["reasons"] == ["image:sha256-mismatch"]
+    pack_path = _pack(env, "v1", 1)
+    raw = bytearray(Path(pack_path).read_bytes()); raw[-1] ^= 1; Path(pack_path).write_bytes(bytes(raw))
+    swap_result = host.swap(pack_path)
+    assert not swap_result["ok"] and swap_result["reasons"] == ["image:sha256-mismatch"]
     assert host.active()["active"] is None
 
 
@@ -114,9 +116,9 @@ def test_rollback_restores_previous(env):
     host = _host(env)
     h1 = host.swap(_pack(env, "v1", 1))["active"]
     host.swap(_pack(env, "v2", 2, hot=80))
-    r = host.rollback()
-    assert r["ok"] and r["active"] == h1
-    assert [e["action"] for e in host.history()][-1] == "rollback"
+    rollback_result = host.rollback()
+    assert rollback_result["ok"] and rollback_result["active"] == h1
+    assert [event["action"] for event in host.history()][-1] == "rollback"
 
 
 def test_strict_raises(env):
@@ -130,9 +132,9 @@ def test_allow_unsigned_stamps_the_event(env):
     host = _host(env)
     ppt = env["tmp"] / "raw.ppt"
     ppt.write_bytes(pc.compile_flow(parse(_flow(100))).serialize())
-    r = host.swap(str(ppt), allow_unsigned=True)
-    assert r["ok"] and r["unsigned"] is True
-    ev = [e for e in host.history() if e["action"] == "swap"][-1]
+    swap_result = host.swap(str(ppt), allow_unsigned=True)
+    assert swap_result["ok"] and swap_result["unsigned"] is True
+    ev = [event for event in host.history() if event["action"] == "swap"][-1]
     assert ev["data"]["unsigned"] is True
 
 
@@ -140,7 +142,7 @@ def test_attest_writes_a_ledger_row(env):
     host = _host(env)
     host.swap(_pack(env, "v1", 1))
     host.attest()
-    att = [e for e in host.history() if e["action"] == "attestation"]
+    att = [event for event in host.history() if event["action"] == "attestation"]
     assert len(att) == 1 and att[0]["data"]["version"] == 1
 
 
@@ -151,7 +153,7 @@ def test_unexpected_exception_is_atomic(env, monkeypatch):
     host.swap(_pack(env, "v1", 1))
     before = host.active()
     monkeypatch.setattr(pp, "check_envelope",
-                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+                        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError, match="boom"):
         host.swap(_pack(env, "v2", 2))
     assert host.active() == before                        # nothing flipped
@@ -161,5 +163,116 @@ def test_version_floor_persists_across_restart(env):
     host = _host(env)
     host.swap(_pack(env, "v3", 3))
     host2 = _host(env)                                    # fresh host, same state_dir
-    r = host2.swap(_pack(env, "v2", 2))                  # below the persisted floor
-    assert not r["ok"] and any("version:not-monotonic" in x for x in r["reasons"])
+    swap_result = host2.swap(_pack(env, "v2", 2))                  # below the persisted floor
+    assert not swap_result["ok"] and any("version:not-monotonic" in reason for reason in swap_result["reasons"])
+
+def _events(host, action):
+    return [event for event in host.audit.events if event["action"] == action]
+
+
+def test_floor_write_failure_leaves_previous_policy_active(env, monkeypatch):
+    """A failure after validation, at the version floor write, must not activate the new policy, must
+    not record an accepted swap, and must let the same swap complete on retry."""
+    host = _host(env)
+    host.swap(_pack(env, "v1", 1))
+    before = host.active()
+    v2 = _pack(env, "v2", 2)
+    real_persist = host._persist_version
+
+    def failing_persist(version):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(host, "_persist_version", failing_persist)
+    with pytest.raises(OSError):
+        host.swap(v2)
+    assert host.active() == before, "the previous policy stays active"
+    assert host._stored_version() == 1, "the floor did not move"
+    assert [event["data"]["version"] for event in _events(host, "swap")] == [1], "no accepted swap for version 2 was recorded"
+    monkeypatch.setattr(host, "_persist_version", real_persist)
+    result = host.swap(v2)
+    assert result["ok"] and result["version"] == 2
+    assert [event["data"]["version"] for event in _events(host, "swap")] == [1, 2]
+    assert not os.path.exists(host._pending_path())
+
+
+def test_evidence_write_failure_after_the_floor_is_recoverable(env, monkeypatch):
+    """The floor advanced, the evidence did not: the previous policy stays active, a restart records the
+    interruption, and the same image at the same version is admitted although the floor equals it."""
+    from prismpath.ledgers import audit_log as audit_module
+    host = _host(env)
+    host.swap(_pack(env, "v1", 1))
+    before = host.active()
+    v2 = _pack(env, "v2", 2)
+
+    def failing_append(*args, **kwargs):
+        raise audit_module.AuditWriteError("disk gone")
+    monkeypatch.setattr(host.audit, "append", failing_append)
+    with pytest.raises(audit_module.AuditWriteError):
+        host.swap(v2)
+    assert host.active() == before
+    assert host._stored_version() == 2, "the floor had already advanced when the evidence write failed"
+    assert os.path.exists(host._pending_path()), "the intent record marks the interrupted commit"
+    restarted = _host(env)
+    assert [event["data"]["version"] for event in _events(restarted, "swap_incomplete")] == [2]
+    other_image_same_version = restarted.swap(_pack(env, "v2b", 2, hot=50))
+    assert not other_image_same_version["ok"], "a different image at the floor version is still rejected"
+    result = restarted.swap(v2)
+    assert result["ok"] and result["version"] == 2, "the interrupted swap completes on retry"
+    assert not os.path.exists(restarted._pending_path())
+    assert [event["data"]["version"] for event in _events(restarted, "swap")] == [1, 2]
+    assert restarted.audit.verify_persisted()
+
+
+def test_a_floor_below_the_intent_is_not_admitted_twice(env):
+    """After a completed swap the intent record is gone, so the floor is strict again."""
+    host = _host(env)
+    host.swap(_pack(env, "v1", 1))
+    host.swap(_pack(env, "v2", 2))
+    again = host.swap(_pack(env, "v2c", 2, hot=60))
+    assert not again["ok"] and any("version:not-monotonic" in reason for reason in again["reasons"])
+
+
+def test_active_policy_survives_a_new_host(env):
+    """The process that swapped is not the only one that knows what is active: `swap attest` and the
+    console each build a fresh host over the state directory and must report the committed policy."""
+    first = _host(env)
+    accepted = first.swap(_pack(env, "v1", 1))
+    second = _host(env)
+    assert second.active()["active"] == accepted["active"]
+    assert second.attest()["version"] == 1
+    third_swap = second.swap(_pack(env, "v2", 2, hot=50))
+    assert third_swap["ok"]
+    assert _host(env).active()["active"] == third_swap["active"] != accepted["active"]
+    rows = [ev for ev in AuditLog(str(env["tmp"] / "state" / "swaps.log")).events if ev["action"] == "attestation"]
+    assert rows and rows[-1]["data"]["active"] == accepted["active"]
+
+
+def test_a_tampered_active_image_is_not_restored(env):
+    first = _host(env)
+    accepted = first.swap(_pack(env, "v1", 1))
+    (env["tmp"] / "state" / "active.ppt").write_bytes(b"not the image")
+    second = _host(env)
+    assert second.active() == {"active": None}
+    last = AuditLog(str(env["tmp"] / "state" / "swaps.log")).events[-1]
+    assert last["action"] == "active_unreadable"
+    assert last["data"] == {"to_hash": accepted["active"], "reason": "image:digest-mismatch", "result": "not_restored"}
+
+
+def test_a_record_that_is_not_an_object_is_not_restored(env):
+    """A record that parses but is not an object, with its image gone too, must still get the audited
+    fail closed answer at start rather than an exception from reading a field off a list."""
+    state = env["tmp"] / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "active_policy.json").write_text('["not", "an", "object"]')
+    host = _host(env)
+    assert host.active() == {"active": None}
+    last = AuditLog(str(state / "swaps.log")).events[-1]
+    assert last["action"] == "active_unreadable"
+    assert last["data"] == {"reason": "record:not-an-object", "result": "not_restored"}
+
+
+def test_rollback_is_what_a_new_host_restores(env):
+    host = _host(env)
+    first = host.swap(_pack(env, "v1", 1))
+    host.swap(_pack(env, "v2", 2, hot=50))
+    assert host.rollback()["active"] == first["active"]
+    assert _host(env).active()["active"] == first["active"]

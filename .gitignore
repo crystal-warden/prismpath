@@ -27,5 +27,36 @@ docs/design/arch-scorecard.md
 docs_health_report.md
 *.ots.bak
 prismpath-telemetry-rs/target/
+target/            # every crate's build output, at any depth
 /target/
-/target/
+prismpath-ebpf/.sel_tmp/
+# Vivado build outputs (bitstreams/reports are regenerated from rtl/ + vivado/*.tcl)
+prismpath-hw/vivado/build_overlay*/
+prismpath-hw/codec-bench/rtl-tb/sim_build/
+prismpath-hw/codec-bench/rtl-tb/results.xml
+prismpath-hw/codec-bench/rtl-tb/__pycache__/
+
+# local Claude Code session settings
+.claude/
+
+# demo bench artifacts: videos ride the receipt bundle (hashes in SHA256SUMS), never git
+prismpath-hw/hyst-cert/evidence/*.MOV
+# the demo authority PRIVATE key never enters the repo (the .pub does)
+prismpath-hw/demo/keys/*.key
+# ESP-IDF build trees
+prismpath-hw/walker-demo/*/build/
+prismpath-hw/hyst-cert/evidence/*.mp4
+
+# Lean build products and the Mathlib cache (formal/, several GB)
+formal/.lake/
+# layer comparison toolchain (installed by prismpath/comparisons/toolchain/install.sh, pinned)
+prismpath/comparisons/.toolchain/
+prismpath/comparisons/groupa/opa_wasm_mcu/build_linux/
+prismpath/comparisons/groupa/opa_wasm_mcu/pico/build/
+prismpath/comparisons/groupa/opa_wasm_mcu/pico/wasm_*.h
+prismpath/comparisons/matrix.json
+prismpath/comparisons/results/**/opa_*.log
+
+# runtime state the connector writes beside the working directory (FileDeferralStore); never repo content
+*.deferrals/
+.hypothesis/

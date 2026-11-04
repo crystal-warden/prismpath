@@ -6,9 +6,148 @@ frozen conformance vectors that changes an existing case bumps the spec version,
 is the spec-change review. Pre-1.0, minor versions may break APIs; the flow *format* is already
 spec stable.
 
-## [Unreleased]
+## [0.1.1] (not yet uploaded)
+
+### Summary since the 0.1.0 upload to PyPI
+
+The 0.1.0 files on PyPI were built on 2026-08-17 from commit `6cafd86`, which is 179 commits after the
+`v0.1.0` tag (`990f493`, 2026-08-05); RELEASING.md has the evidence. This summary covers the 368 commits
+after `6cafd86`, grouped by what a user of the package meets. The detailed entries below it are the
+record, and some of them predate the upload.
+
+- **Installing and extras.** The README, the getting started guide, the PyPI page and the guides now say
+  which extra each feature needs (`embeddings`, `signing`, `control-plane`, `llm-local`) and that the
+  ledger commands call the external `ots` client. The wheel ships every package under `prismpath` by
+  discovery, so `prismpath.comparisons` and `prismpath.portable` are no longer missing from it, and the
+  package metadata carries an SPDX license expression and the documentation and issue links.
+- **Command line.** `--help` groups the commands by the four people who run them (process owner,
+  engineer, operator, assessor). New: `prismpath trail` reads an audit log, `swap attest` shows an
+  overlay, `facet quantize` and `encode` refuse a bad payload with the field and the reason and exit 2,
+  and the ledger commands return the OpenTimestamps client's exit code. `run --worker` replaces
+  `--agent` (the old flag still works, hidden).
+- **Package layout.** The flat layout became eight subpackages (`kernel`, `routing`, `safety`, `hotswap`,
+  `ledgers`, `workers`, `orchestration`, `evals`); the 67 old module names still import and now warn.
+  The Facet wire ships in the package as `prismpath.telemetry`.
+- **Flow format and engine.** Field definitions (SPEC section 4.5) let a flow sign the meaning of every
+  value it routes on, with one acceptance rule on every encoder that refuses a value rather than
+  truncating it. Receipts carry a cause from the refusal and deviation registry. An error edge guard that
+  cannot be evaluated is recorded, the embedding router's cache is bounded, the type gate survives a
+  crash resume, and an unparseable audit log line fails `verify_log` rather than vanishing.
+- **Signed packs and hot swap.** A durable commit protocol, an explicit audit persistence step, and an
+  active policy that survives a new process, so `swap attest` reports what a real swap left running.
+- **Facet wire.** The refresh, tick replay, concentrator, receipt stream and spiral packing profiles
+  (PROTOCOL.md sections 2.7 to 2.10) and a durable epoch journal.
+- **Mission Control.** Panels for inspect, quality, proof and policy, and a file picker instead of a
+  typed path.
+- **Documentation.** The public position (docs/POSITION.md), the Decision Dictionary, the operator's
+  guide and system map, METHODOLOGY.md, and README front doors for the crates. Install snippets in the
+  guides now import from the grouped module paths.
+- **Not in the wheel.** The compliance adapter (OSCAL and CycloneDX output, the SSDF and Cyber Resilience
+  Act catalogs, VEX, the pack SBOM), the Vector integration and Wireshark dissector, the hardware, eBPF,
+  FPGA and firmware work, the Lean proof of Figueroa quantization, the pre registered comparison and the
+  evidence ledger live in the repository.
+- **Command line errors.** A missing or unreadable file, a flow that does not parse, malformed JSON, a
+  worker that does not answer and a missing optional extra now end in one line on stderr naming the
+  command, with exit code 2, instead of a traceback; `PRISMPATH_DEBUG=1` shows the traceback. A missing
+  extra names the install line (`pip install 'prismpath[embeddings]'` and so on). The ledger, `ci-report`
+  and RFC 3161 commands check for `ots`, `git` and `openssl` before they start. `calibrate`, `label` and
+  `trail` refuse a missing log rather than reading it as empty. `init NAME` writes `NAME.md` and
+  `NAME.tests.md`.
+
+### Added
+- **A CycloneDX 1.6 SBOM for a signed policy pack, from the compliance emitter**
+  (`adapters.compliance.emit.pack_sbom`, `python -m adapters.compliance.emit --pack-sbom`), beside its
+  OSCAL and CycloneDX attestation output and validated with the same cached schemas. It restates the
+  verified manifest (image SHA-256, version, signing key, envelope, WCET bound, field dictionary, and
+  the authored flow's hash when the pack recorded one), is written only for a pack that verifies and a
+  document the schema accepts, and is the same document for the same pack. Zarf's own SBOM of a policy
+  package lists no artifacts and no files (Zarf 0.87.0), so the Zarf demos now ship this one beside the
+  policy.
+- **`integrations/zarf-kernel/`: delivery through activation.** Zarf delivers the signed pack, the
+  host verifies and swaps it, and `activate.sh` loads the host's accepted copy into the in-kernel
+  evaluator only after its hash matches the attestation, then checks the kernel's path for a probe
+  reading against the host reference and writes `deployed/activation.json`. A tampered package
+  stops at verification; a copy replaced on disk after acceptance is refused before the kernel is
+  touched. The probe reading is encoded with the compiler's binding of the same flow, which the pack
+  does not yet sign; `make_probe.py` refuses unless the flow recompiles to the delivered image.
+- **Supply chain catalogs and a policy delivery assessment in the compliance adapter.** Two new
+  selectable standards: `nist_ssdf` (NIST SP 800-218 v1.1, 19 practices and 42 tasks) and
+  `eu_cra_annex_i` (the Cyber Resilience Act's Annex I, Parts I and II, 22 requirements), with text
+  verbatim from the publication and the Official Journal. `assess_policy_delivery.py` runs its own
+  checks on a deployed pack and emits OSCAL Assessment Results, POA&M and CycloneDX attestations for
+  each. On the Zarf kernel deployment it finds SSDF PS.2 met, PS.3 and PW.4 partially met, and Annex I
+  (2)(f), (2)(l), Part II (1) and (7) partially met, with everything else reported not assessed.
+- **The emitter names the standard its records were assessed against** (`standard=`, default NIST SP
+  800-171 Rev 2 with unchanged output), and takes `not_assessed=` for a scoped assessment: the OSCAL
+  result then reviews only the assessed controls and lists the rest in its remarks, and the CycloneDX
+  attestation map leaves them out.
+
+### Deprecated
+- **`agent` as the name for whatever does a node's work; the word is `worker`.** `run(agent=...)`
+  is `run(worker=...)`, `prismpath.workers.cli_worker.cli_agent` is `cli_worker`,
+  `prismpath.plugins.registry.worker_agent` is `worker_for`, and the `prismpath run --agent SPEC`
+  flag is `--worker SPEC`. Every old spelling still works and still reaches the same code: the three
+  Python names raise a `DeprecationWarning`, and the flag is a hidden alias on the same destination,
+  so a script that passes `--agent` is undocumented rather than broken. They go away in a later
+  release. The dictionary's **worker** entry lists all four as deprecated synonyms; `WorkerFn` was
+  already the right name for the type.
+- **The flat module names under `prismpath/`** (`prismpath.policy_pack`, `prismpath.ledger_ots`, `prismpath.analysis` and the other 64 aliases left by the September regroup into `kernel/ routing/ safety/ hotswap/ ledgers/ workers/ orchestration/ evals/`) now emit a `DeprecationWarning` on import and go away in a later release. Every first party import already uses the grouped path; adopters should import from it too.
 
 ### Changed
+- **The readability refactor: the big files are split, the vocabulary is one word per thing, and no
+  public name moved.** What moved: `cli.py`'s embedded 193 line JavaScript engine left for
+  `prismpath/portable/bundle_engine.mjs`, where it reuses the kernel's tiers instead of disagreeing
+  with them, and one `scriptedAgent` exported from `prismpath.mjs` replaced three hand kept copies;
+  `prismpath/mission_control/core.py` became a facade over one module per job, with every path, port
+  and cap on one `Settings` object; the connector's six ports became six mixins behind an unchanged
+  `BaseConnector`, and `deferral.py`'s `__main__` self test became `prismpath/tests/test_deferral.py`;
+  the fusion and compliance adapters, the fusion bench and the Vector integration became packages, so
+  29 `sys.path` inserts went and the quantizer's four private helpers went public; `prismpath-rs`
+  split `lib.rs` into `parser`, `engine`, `condition`, `level_m`, `reach`, `value`, `compose`,
+  `connector`, `durable` and `crypto_agility`, all re exported from the crate root; the eBPF loader
+  split into `ppt_image.c` (read, validate and evaluate an image on the host, no libbpf) and
+  `ppt_maps.c` (fill the maps, stamp the policy hash, carry the selector's resident state across a
+  swap) under a `loader.c` that is now one command table; the four XDP programs include one evaluator,
+  `ppt_eval_bpf.h`, instead of four copies kept in step by hand; `rtl-tb/gate.mk` gave eleven
+  ungated cocotb testbenches a real pass or fail target; and six companion walkthrough documents
+  landed beside the code they explain (`prismpath-hw/EVALUATOR_WALKTHROUGH.md`,
+  `PPT_FORMAT_WALKTHROUGH.md`, `esp-vision-node/FRONT_END.md`, `esp-vision-c6/RELAY_WALKTHROUGH.md`,
+  `rtl-tb/README.md`, `prismpath-ebpf/EVALUATOR_WALKTHROUGH.md`). What was renamed, all of it against
+  `docs/DICTIONARY.md`: the routing outcome is a `route` and the GRC outcome is a `determination`; a
+  wire struct field holding an edge's declared destination is `target`; `nid` is `device_id`; a
+  selector's `posture` is its `resident_node`; the receipt decoder's two senses of cause are
+  `cause_code` and `refusal_cause`; the persona who reads receipts is the **assessor** and the build
+  loop is **orchestration**, not "the control plane"; the per node callable is a **worker**; and the
+  single letter locals across Python, the tests, telemetry, the compliance and fusion adapters, the
+  hardware harnesses, the firmware C, the eBPF sources, Rust, Go and JavaScript took dictionary
+  names, as did the vision firmware's one letter geometry macros (`FRAME_W`, `FRAME_H`). What a
+  caller must do: nothing. Every import path, CLI verb, wire byte, frozen corpus and signed image is
+  unchanged; the four renamed call surfaces keep their old spellings as deprecated aliases (see
+  Deprecated above); the certified bytes (`interp.c`, the RTL,
+  the eBPF programs, the cause registry) did not move, and the walkthrough documents exist because
+  they cannot.
+- **The README is restructured around the public position.** `docs/POSITION.md` is the canonical
+  statement (one sentence, problem, prove/enforce/prove, capability status, what the comparison
+  established, vocabulary contract, claims made and not made); the README, the site, and the package
+  docstring are views over it. The hero says what PrismPath is, a control plane for autonomous systems,
+  one of many, and the approach is what is unusual; Figueroa quantization and Facet move out of the
+  hero into their own section; the comparison verdict is on the front page as the claim that did not
+  survive. `prismpath.__init__` describes the grouped layout and the reading order.
+- **`Graph.validate()` is gone; use `analysis.errors(graph)`.** The parser no longer imports the
+  analyzer (it was the one cycle in the kernel), the Level M classifier lives in its own module
+  `prismpath.level_m` (re exported from `model_check`, so `ppt_compile` and every caller keep their
+  names), and the shared parse and traversal helpers moved down to `predicates.expr_ast` and
+  `parser.reachable`. `prismpath.canon` holds the byte level helpers that were copied across
+  modules; nothing persisted or signed changed bytes (the frozen corpora regenerate identically).
+- **The Facet wire ships in the package as `prismpath.telemetry`** (moved from `adapters/telemetry`).
+- **The package is grouped by concern.** `prismpath/kernel/` (parser, predicates, engine, causes,
+  contract, analysis, level_m, model_check, lint, graph_export, flow_context, flow_test),
+  `routing/`, `safety/`, `hotswap/`, `ledgers/`, `workers/`, `orchestration/`, `evals/`, beside
+  `telemetry/`. Every old flat name (`prismpath.engine`, `prismpath.checkpoint`, ...) stays
+  importable and is the same module object, so `from prismpath.checkpoint import _atomic_write`
+  and monkeypatching keep working; new code should use the grouped paths. `python -m` entry points
+  moved with their modules (`prismpath.safety.fuzz_predicates`, `prismpath.routing.prefilter`,
+  `prismpath.orchestration.run_sprint`).
 - **Crate renamed: `facet-preflight` is now `prismpath-preflight`.** The `facet-*` prefix on
   crates.io belongs to the facet reflection ecosystem; the collision was flagged by r/rust and the
   crate moved out of that namespace the same day (same code, same contract, binary renamed to

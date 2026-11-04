@@ -40,6 +40,21 @@ prismpath test prismpath/examples/pr_demo/triage.md      # 4  → "6/6 passed"  
 
 You have now linted a workflow's control structure and asserted its routing against fixtures;
 before running anything, with no model in the loop. That pair of commands is the whole CI story.
+The base install is numpy only. Features that need more are extras, added with
+`pip install -e ".[embeddings]"` from the clone (or `pip install 'prismpath[embeddings]'` from PyPI):
+
+| Extra | What needs it |
+|---|---|
+| none (numpy only) | `init`, `validate`, `test` on deterministic rows, `graph`, `context`, `capability`, `contract`, `verify`, `portable`, `compile`, `calibrate`, `trail`, `facet`, and `run` on a flow whose edges are all deterministic |
+| `embeddings` | the embedder, so semantic edges can route: `run` on a flow that has one, `lock`, `test` rows that exercise one, `lint`'s semantic checks, `centroids` |
+| `signing` | Ed25519 and the confidentiality layer: every `swap` action (`keygen`, `envelope`, `pack`, `verify`, `swap`, `attest`) |
+| `control-plane` | Mission Control (`python -m prismpath.mission_control`), the orchestrator and the sprint runner: FastAPI, uvicorn, pydantic and requests |
+| `llm-local` | transformers, for the local model that serves as the LLM fallback in the router and the swarm runner |
+
+Extras combine (`pip install -e ".[embeddings,signing]"`). `prismpath ledger anchor`, `upgrade` and `verify` also call the
+external OpenTimestamps client, `ots`, which is not a Python extra: install it separately
+(`pip install opentimestamps-client`) and keep it on your PATH.
+
 To start from a scaffold instead of the example, **`prismpath init`** writes a starter flow + its
 routing-test table into the current directory and prints exactly these commands against it;
 or start from a real gallery workflow with `prismpath init --template <name>` (`--template list`).
@@ -79,19 +94,19 @@ Delete it.
 **6.** `prismpath validate my_first_flow.md`; catch the typo *now*, not at 3 a.m.
 
 **7.** Wire a worker; or skip the driver file entirely if you run local models:
-`prismpath run my_first_flow.md --agent ollama:llama3.2` (any Ollama model; or
-`--agent openai:MODEL@http://host:port/v1` for vLLM / LM Studio / llama.cpp). JSON replies
+`prismpath run my_first_flow.md --worker ollama:llama3.2` (any Ollama model; or
+`--worker openai:MODEL@http://host:port/v1` for vLLM / LM Studio / llama.cpp). JSON replies
 feed the `when` predicates; failures ride the `on error` edges. For full control, wire it
 yourself; any CLI that reads stdin and prints to stdout is an agent (Claude Code, a
 Gemini CLI, aider, or a shell script):
 
 ```python
 # drive.py
-from prismpath.parser import parse_file
-from prismpath.engine import run
-from prismpath.cli_worker import cli_agent
+from prismpath.kernel.parser import parse_file
+from prismpath.kernel.engine import run
+from prismpath.workers.cli_worker import cli_worker
 
-agent = cli_agent(["claude", "-p"])          # or ["gemini"], or any command you trust
+agent = cli_worker(["claude", "-p"])          # or ["gemini"], or any command you trust
 res = run(parse_file("my_first_flow.md"), agent)
 print("path:", " -> ".join(res.path), "| stopped:", res.stopped)
 ```
@@ -109,7 +124,7 @@ path: classify -> page_me | stopped: terminal
 
 Eight steps, and the part you'll maintain forever (the control flow) is a document your whole
 team can read. A different engine per node is one dict away
-(`cli_agent({"classify": [...], "page_me": [...]})`): route between *engines* by outcome, not
+(`cli_worker({"classify": [...], "page_me": [...]})`): route between *engines* by outcome, not
 by hardcoding.
 
 ## Path 4 · make it a team process (steps 9 · 10)
@@ -139,7 +154,7 @@ is demonstrated end to end in
 ## Where the steps go from here (each is optional, none is required)
 
 - **Semantic edges**: write a condition in plain language (`-> escalate: the customer is
-  threatening to leave`) and `pip install -e ".[embeddings]"` (~90 MB, local, no API): embedding
+  threatening to leave`) and `pip install -e ".[embeddings]"` (local, no API; the model is ~90 MB, but the install brings in PyTorch, a few GB on Linux): embedding
   similarity routes it, and a one-shot LLM is consulted only on low-confidence margins.
 - **Reproducibility**: `prismpath lock` pins the semantic routing bit-for-bit;
   `prismpath calibrate` *derives* the escalation threshold with a finite-sample guarantee instead

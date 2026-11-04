@@ -18,19 +18,23 @@ import os
 
 import alert_handlers  # importable module (dotted path) so the sandbox child can load the handlers
 
-from prismpath.chat_agent import chat_agent
-from prismpath.code_nodes import code_agent
-from prismpath.engine import run
-from prismpath.parser import parse_file
-from prismpath.sandbox import SandboxRunner
+from prismpath.workers.chat_agent import chat_agent
+from prismpath.workers.code_nodes import code_agent
+from prismpath.kernel.engine import run
+from prismpath.kernel.parser import parse_file
+from prismpath.workers.sandbox import SandboxRunner
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FLOW = os.path.join(HERE, "alert_router.md")
 HANDLERS = {"parse": alert_handlers.parse, "decide": alert_handlers.decide}
 SANDBOXED = set(HANDLERS)
 
-BASE = os.environ.get("LLM_BASE", "http://127.0.0.1:8888/v1")
-MODEL = os.environ.get("LLM_MODEL", "gemma4")
+# ============================================================================
+# CONFIGURE -- set your model endpoint and id (env vars override), then run.
+# ============================================================================
+BASE = os.environ.get("LLM_BASE", "http://127.0.0.1:8888/v1")   # your OpenAI-compatible endpoint
+MODEL = os.environ.get("LLM_MODEL", "gemma4")                   # your model id
+# ============================================================================
 
 ALERTS = [
     "service=checkout 87 errors in 5m, latency spiking, customers seeing 500s at pay",

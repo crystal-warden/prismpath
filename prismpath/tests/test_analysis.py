@@ -13,8 +13,8 @@ import os
 
 import pytest
 
-from prismpath.parser import parse, parse_file
-from prismpath import analysis
+from prismpath.kernel.parser import parse, parse_file
+from prismpath.kernel import analysis
 
 HERE = os.path.dirname(__file__)
 BROKEN = os.path.join(HERE, "fixtures", "broken")
@@ -23,11 +23,11 @@ FLOWS = os.path.join(os.path.dirname(HERE), "flows")
 
 def _shipping_flows():
     # `.tests.md` files are routing fixtures (Markdown tables), not flows — exclude them.
-    return sorted(p for p in glob.glob(os.path.join(FLOWS, "*.md")) if not p.endswith(".tests.md"))
+    return sorted(path for path in glob.glob(os.path.join(FLOWS, "*.md")) if not path.endswith(".tests.md"))
 
 
 def _codes(graph):
-    return {f.code for f in analysis.analyze(graph)}
+    return {finding.code for finding in analysis.analyze(graph)}
 
 
 # --- the broken-flow corpus: filename -> the code it must surface -----------------------
@@ -46,27 +46,35 @@ CORPUS = {
     "unbounded_cycle.md": "unbounded-cycle",
     "always_false.md": "always-false-edge",
     "duplicate_condition.md": "duplicate-condition",
+    "spiral_no_baseline.md": "spiral-no-baseline",
+    "spiral_baseline_not_last.md": "spiral-baseline-not-last",
+    "spiral_multi_baseline.md": "spiral-multi-baseline",
+    "stateful_migration_undeclared.md": "stateful-migration-undeclared",
+    "refresh_missing_param.md": "refresh-missing-param",
+    "refresh_bad_param.md": "refresh-bad-param",
+    "refresh_stale_bound.md": "refresh-stale-bound",
+    "refresh_stale_tight.md": "refresh-stale-tight",
 }
 
 
 @pytest.mark.parametrize("fname,code", sorted(CORPUS.items()))
 def test_broken_fixture_surfaces_its_check(fname, code):
-    g = parse_file(os.path.join(BROKEN, fname))
-    assert code in _codes(g), f"{fname} should surface {code}, got {_codes(g)}"
+    graph = parse_file(os.path.join(BROKEN, fname))
+    assert code in _codes(graph), f"{fname} should surface {code}, got {_codes(graph)}"
 
 
 def test_error_edge_ordering(tmp_path):
-    from prismpath.parser import parse
+    from prismpath.kernel.parser import parse
     # correct order: conditional `on error when …` BEFORE the bare catch-all -> no shadowing
     ok = parse("---\nname: e\nstart: w\n---\n## w\nGo.\n-> d: it worked\n"
                "-> retry: on error when error_count < 3\n-> giveup: on error\n## retry\n-> w: always\n"
                "## giveup\n## d\n")
-    assert "shadowed-error-edge" not in {f.code for f in analysis.analyze(ok)}
+    assert "shadowed-error-edge" not in {finding.code for finding in analysis.analyze(ok)}
     # wrong order: bare `on error` first makes the later conditional dead
     bad = parse("---\nname: e\nstart: w\n---\n## w\nGo.\n-> d: it worked\n"
                 "-> giveup: on error\n-> retry: on error when error_count < 3\n## retry\n-> w: always\n"
                 "## giveup\n## d\n")
-    assert "shadowed-error-edge" in {f.code for f in analysis.analyze(bad)}
+    assert "shadowed-error-edge" in {finding.code for finding in analysis.analyze(bad)}
 
 
 def test_corpus_covers_every_analysis_code():
@@ -95,15 +103,15 @@ KNOWN_REAL_WARNINGS = {
 
 @pytest.mark.parametrize("path", _shipping_flows())
 def test_shipping_flows_have_no_errors(path):
-    g = parse_file(path)
-    errors = [f for f in analysis.analyze(g) if f.severity == "error"]
-    assert not errors, f"{os.path.basename(path)} has errors: {[f.message for f in errors]}"
+    graph = parse_file(path)
+    errors = [finding for finding in analysis.analyze(graph) if finding.severity == "error"]
+    assert not errors, f"{os.path.basename(path)} has errors: {[finding.message for finding in errors]}"
 
 
 @pytest.mark.parametrize("path", _shipping_flows())
 def test_shipping_flow_warnings_are_only_the_known_true_positives(path):
-    g = parse_file(path)
-    codes = {f.code for f in analysis.analyze(g) if f.severity == "warning"}
+    graph = parse_file(path)
+    codes = {finding.code for finding in analysis.analyze(graph) if finding.severity == "warning"}
     allowed = KNOWN_REAL_WARNINGS.get(os.path.basename(path), set())
     assert codes <= allowed, (
         f"{os.path.basename(path)} produced unexpected warning(s) {codes - allowed} — "
@@ -113,7 +121,7 @@ def test_shipping_flow_warnings_are_only_the_known_true_positives(path):
 # --- targeted unit checks for the trickier reasoning ------------------------------------
 
 def test_complementary_pair_is_exhaustive_no_stuck_warning():
-    g = parse("""---
+    graph = parse("""---
 start: t
 ---
 ## t
@@ -124,11 +132,11 @@ start: t
 -> done: when always
 ## done
 """)
-    assert "possible-stuck" not in _codes(g)   # tests_pass / not tests_pass covers all
+    assert "possible-stuck" not in _codes(graph)   # tests_pass / not tests_pass covers all
 
 
 def test_two_distinct_flags_are_not_exhaustive_stuck_warning():
-    g = parse("""---
+    graph = parse("""---
 start: t
 ---
 ## t
@@ -140,11 +148,11 @@ start: t
 -> done: when always
 ## done
 """)
-    assert "possible-stuck" in _codes(g)       # passed / failed are different fields
+    assert "possible-stuck" in _codes(graph)       # passed / failed are different fields
 
 
 def test_visits_capped_cycle_is_not_flagged():
-    g = parse("""---
+    graph = parse("""---
 start: loop
 ---
 ## loop
@@ -152,11 +160,11 @@ start: loop
 -> loop: keep working, not done yet
 ## done
 """)
-    assert "unbounded-cycle" not in _codes(g)
+    assert "unbounded-cycle" not in _codes(graph)
 
 
 def test_always_false_interval_contradiction():
-    g = parse("""---
+    graph = parse("""---
 start: a
 ---
 ## a
@@ -166,12 +174,12 @@ start: a
 -> done: when always
 ## done
 """)
-    assert "always-false-edge" in _codes(g)
+    assert "always-false-edge" in _codes(graph)
 
 
 def test_false_keyword_is_not_flagged_as_dead():
     # `false`/`never` deliberately disable an edge — not an "always-false" mistake.
-    g = parse("""---
+    graph = parse("""---
 start: a
 ---
 ## a
@@ -181,12 +189,133 @@ start: a
 -> done: when always
 ## done
 """)
-    assert "always-false-edge" not in _codes(g)
+    assert "always-false-edge" not in _codes(graph)
 
 
 def test_findings_json_shape():
-    g = parse_file(os.path.join(BROKEN, "no_terminal.md"))
-    for f in analysis.analyze(g):
-        d = f.as_dict()
-        assert set(d) == {"severity", "code", "node", "message"}
-        assert d["severity"] in ("error", "warning")
+    graph = parse_file(os.path.join(BROKEN, "no_terminal.md"))
+    for finding in analysis.analyze(graph):
+        finding_dict = finding.as_dict()
+        assert set(finding_dict) == {"severity", "code", "node", "message"}
+        assert finding_dict["severity"] in ("error", "warning")
+
+
+# ---------------------------------------------------------------- spiral packing profile
+
+def _severities(graph):
+    return {finding.code: finding.severity for finding in analysis.analyze(graph)}
+
+
+def test_spiral_gate_codes_are_errors_and_registered():
+    """The profile's gate rule (owner-mandated): a convention-violating flow FAILS validate and is
+    refused at bake in every materialization. That requires error severity + ERROR_CODES membership
+    — pinned here so a refactor cannot silently demote the gates to warnings again."""
+    assert "spiral-no-baseline" in analysis.ERROR_CODES
+    assert "spiral-baseline-not-last" in analysis.ERROR_CODES
+    graph = parse("""---
+start: decide
+packing: spiral
+---
+## decide
+-> watch: else
+-> page: when level >= 300
+## page
+## watch
+""")
+    assert _severities(graph).get("spiral-baseline-not-last") == "error"
+    g2 = parse("""---
+start: decide
+packing: spiral
+---
+## decide
+-> page: when level >= 300
+## page
+""")
+    assert _severities(g2).get("spiral-no-baseline") == "error"
+
+
+def test_spiral_profile_conformant_flow_is_clean():
+    graph = parse("""---
+start: decide
+packing: spiral
+---
+## decide
+-> page: when level >= 300
+-> ticket: when level >= 200
+-> watch: else
+## page
+## ticket
+## watch
+""")
+    assert not [code for code in _codes(graph) if code.startswith("spiral")]
+
+
+def test_spiral_profile_requires_baseline_last():
+    graph = parse("""---
+start: decide
+packing: spiral
+---
+## decide
+-> watch: else
+-> page: when level >= 300
+## page
+## watch
+""")
+    assert "spiral-baseline-not-last" in _codes(graph)
+
+
+def test_spiral_profile_requires_a_baseline():
+    graph = parse("""---
+start: decide
+packing: spiral
+---
+## decide
+-> page: when level >= 300
+-> ticket: when level >= 200
+## page
+## ticket
+""")
+    assert "spiral-no-baseline" in _codes(graph)
+
+
+def test_spiral_profile_multi_baseline_warns():
+    graph = parse("""---
+start: decide
+packing: spiral
+---
+## decide
+-> page: when level >= 300
+-> watch: else
+-> hold: when always
+## page
+## watch
+## hold
+""")
+    assert "spiral-multi-baseline" in _codes(graph)
+
+
+def test_spiral_rules_silent_without_declaration():
+    # the identical convention-violating flow, undeclared: profile rules must not fire
+    graph = parse("""---
+start: decide
+---
+## decide
+-> page: when level >= 300
+-> ticket: when level >= 200
+## page
+## ticket
+""")
+    assert not [code for code in _codes(graph) if code.startswith("spiral")]
+
+
+def test_graph_meta_carries_frontmatter():
+    graph = parse("""---
+start: a
+packing: spiral
+---
+## a
+-> done: else
+## done
+""")
+    assert graph.meta.get("packing") == "spiral"
+    assert graph.meta.get("start") == "a"

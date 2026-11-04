@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Crystal Warden Supply Chain Labs LLC
+"""otel.py — export a run as OpenTelemetry spans (critic capability #5).
+
+Each node execution and each semantic routing decision becomes a span with the scores/margins as
+attributes — so a flow shows up in Grafana, Jaeger, or Datadog without building a single dashboard.
+The observability weakness ("Mission Control is embryonic") becomes "integrates with what you
+already run."
+
+Design: `span_records()` runs a flow and emits OTel-*shaped* span dicts to a `sink` callback — fully
+testable with no OpenTelemetry installed. `to_otel_sink(tracer)` adapts those to real spans when the
+SDK is present; `console_tracer()` wires a console exporter for a quick demo.
+
+    from prismpath.ledgers import otel
+    otel.span_records(graph, agent, otel.to_otel_sink(otel.console_tracer()))
+"""
+from __future__ import annotations
+
+from typing import Callable, Optional
+
+
+def span_records(graph, agent, sink: Callable[[dict], None], run_id: Optional[str] = None, **run_kw):
+    """Run `graph` emitting a span-record dict per node execution and per semantic routing decision
+    to `sink`. Each record: {name, attributes, status}. Returns the RunResult."""
+    from prismpath.kernel.engine import run
+    seq = {"i": 0}
+
+    def traced_agent(node, instruction, state):
+        seq["i"] += 1
+        rec = {"name": "prismpath.node", "status": "ok",
+               "attributes": {"prismpath.flow": graph.name, "prismpath.node": node, "prismpath.seq": seq["i"]}}
+        try:
+            out = agent(node, instruction, state)
+        except Exception as error:
+            rec["status"] = "error"
+            rec["attributes"]["prismpath.error"] = f"{type(error).__name__}: {error}"
+            sink(rec)
+            raise
+        text = out.get("text", "") if isinstance(out, dict) else str(out)
+        rec["attributes"]["prismpath.outcome"] = text[:200]
+        sink(rec)
+        return out
+
+    def on_decision(decision: dict):
+        sink({"name": "prismpath.route", "status": "ok", "attributes": {
+            "prismpath.flow": decision.get("flow"), "prismpath.node": decision.get("node"),
+            "prismpath.chosen": decision.get("chosen"), "prismpath.mechanism": decision.get("mechanism"),
+            "prismpath.margin": decision.get("margin"), "prismpath.top1": decision.get("top1"),
+            "prismpath.top2": decision.get("top2"), "prismpath.escalated": decision.get("escalated"),
+            "prismpath.candidates": len(decision.get("candidates", []))}})
+
+    return run(graph, traced_agent, on_decision=on_decision, run_id=run_id, **run_kw)
+
+
+def to_otel_sink(tracer) -> Callable[[dict], None]:
+    """Adapt span-record dicts to real OpenTelemetry spans on `tracer`."""
+    from opentelemetry.trace import Status, StatusCode
+
+    def sink(rec: dict) -> None:
+        with tracer.start_as_current_span(rec["name"]) as span:
+            for attribute_name, attribute_value in rec.get("attributes", {}).items():
+                if attribute_value is not None:
+                    span.set_attribute(attribute_name, attribute_value)
+            if rec.get("status") == "error":
+                span.set_status(Status(StatusCode.ERROR))
+    return sink
+
+
+def console_tracer(service_name: str = "prismpath"):
+    """A tracer that prints spans to the console (needs `pip install opentelemetry-sdk`)."""
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+    except ImportError as error:
+        raise RuntimeError("OpenTelemetry export needs `pip install opentelemetry-sdk`") from error
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    trace.set_tracer_provider(provider)
+    return trace.get_tracer(service_name)

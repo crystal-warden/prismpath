@@ -1,10 +1,13 @@
 # PrismPath Adapter Standard
 
 How we **create, stage, architect, develop, and verify** a domain adapter. Every use case follows this;
-the two reference adapters (`fusion/`, `telemetry/`) show it in practice, and the next domain starts here.
-Both reference adapters are the **deterministic, no-LLM** class: the Adjudicator is a Level M flow (a
-proof, not a judgment), so they exercise the ports without a model in the decision path. An adapter whose
-Adjudicator IS a model wires the same ports through the Connector SDK (§2b).
+two reference adapters show it in practice, and the next domain starts here. `fusion/` is the
+**deterministic, no-LLM** class: the Adjudicator is a Level M flow (a proof, not a judgment), so it
+exercises the ports without a model in the decision path. `compliance/` (rebuilt September 2026) is
+the class whose Adjudicator may be a model: machine checkable controls decide
+deterministically and prose objectives resolve through the Connector SDK (§2b), fail closed, with
+evidence typed determinations. The SOC triage adapter that preceded it is archived and will be rebuilt on
+this standard.
 
 The thesis: **the engine is domain-agnostic; a domain is a set of small decisions plugged in behind
 ports.** If you find yourself adding domain vocabulary to the core, stop; it belongs in an adapter.
@@ -46,7 +49,7 @@ module-level functions as the stable API and delegates to the connector, so an S
 every such adapter at once. A connector becomes a pip-installable plugin in one line:
 ``WORKERS = MyConnector().get_workers()`` under a ``prismpath.plugins`` entry point. Start a
 model-driven adapter by subclassing; override only the ports the domain actually bends. The
-deterministic reference adapters (`fusion/`, `telemetry/`) do not need it: their Adjudicator is a
+the deterministic reference adapter (`fusion/`) does not need it: their Adjudicator is a
 flow, not a model, so they wire the ports directly.
 
 ## 3. Standard directory layout
@@ -147,3 +150,8 @@ HITL Deferral) wires the same ports through the Connector SDK (§2b).
 
 In `tools/arch_guard.config.json`: add `domain_nouns.<domain>` (the terms that must never appear in core)
 and an `adapters.<domain>` entry (`code`, `flows`). Then arch_guard guards your boundary automatically.
+
+
+> **Where the wire went.** `adapters/telemetry/` moved into the package as `prismpath/telemetry/` in
+> September 2026. Facet is core infrastructure every adapter can use, not a domain adapter; the port
+> standard above is unchanged.

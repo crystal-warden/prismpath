@@ -33,6 +33,10 @@ type Graph struct {
 	Nodes     map[string]Node `json:"nodes"`
 	NodeOrder []string        `json:"node_order"`
 	Terminals []string        `json:"terminals"`
+	// Refused says why this kernel will not run the flow. Field definitions (SPEC section 4.5) are not
+	// implemented here, and a flow that defines its fields may hold decimal thresholds the reference
+	// lowers at parse, so such a flow has every edge disabled and Run refuses it.
+	Refused string `json:"refused,omitempty"`
 }
 
 var (
@@ -44,36 +48,36 @@ var (
 func splitLines(src string) []string {
 	var lines []string
 	var sb strings.Builder
-	for i := 0; i < len(src); {
-		r, size := utf8DecodeRune(src[i:])
-		if r == '\r' {
-			if i+size < len(src) && src[i+size] == '\n' {
+	for pos := 0; pos < len(src); {
+		char, size := utf8DecodeRune(src[pos:])
+		if char == '\r' {
+			if pos+size < len(src) && src[pos+size] == '\n' {
 				lines = append(lines, sb.String())
 				sb.Reset()
-				i += size + 1
+				pos += size + 1
 				continue
 			}
 			lines = append(lines, sb.String())
 			sb.Reset()
-			i += size
+			pos += size
 			continue
 		}
-		if r == '\n' || r == '\v' || r == '\f' || r == 0x85 || r == 0x2028 || r == 0x2029 || (r >= 0x1c && r <= 0x1e) {
+		if char == '\n' || char == '\v' || char == '\f' || char == 0x85 || char == 0x2028 || char == 0x2029 || (char >= 0x1c && char <= 0x1e) {
 			lines = append(lines, sb.String())
 			sb.Reset()
-			i += size
+			pos += size
 			continue
 		}
-		sb.WriteRune(r)
-		i += size
+		sb.WriteRune(char)
+		pos += size
 	}
 	lines = append(lines, sb.String())
 	return lines
 }
 
-func utf8DecodeRune(s string) (rune, int) {
-	r, size := utf8.DecodeRuneInString(s)
-	return r, size
+func utf8DecodeRune(text string) (rune, int) {
+	char, size := utf8.DecodeRuneInString(text)
+	return char, size
 }
 
 // Parse parses a Markdown flow document into a Graph.
@@ -84,25 +88,29 @@ func Parse(markdown string) Graph {
 
 	inFrontmatter := false
 	fmDone := false
+	definedFields := []string{}
 	bodyLines := []string{}
 
 	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
 		inFrontmatter = true
-		for i := 1; i < len(lines); i++ {
-			line := lines[i]
+		for lineIndex := 1; lineIndex < len(lines); lineIndex++ {
+			line := lines[lineIndex]
 			if strings.TrimSpace(line) == "---" {
 				fmDone = true
-				bodyLines = lines[i+1:]
+				bodyLines = lines[lineIndex+1:]
 				break
 			}
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 {
-				k := strings.TrimSpace(parts[0])
-				v := strings.TrimSpace(parts[1])
-				if k == "name" {
-					name = v
-				} else if k == "start" {
-					start = v
+				key := strings.TrimSpace(parts[0])
+				value := strings.TrimSpace(parts[1])
+				if strings.HasPrefix(key, "field.") {
+					definedFields = append(definedFields, key)
+				}
+				if key == "name" {
+					name = value
+				} else if key == "start" {
+					start = value
 				}
 			}
 		}
@@ -129,9 +137,9 @@ func Parse(markdown string) Graph {
 	}
 
 	for _, line := range bodyLines {
-		if m := nodeHeadingRe.FindStringSubmatch(line); len(m) > 1 {
+		if match := nodeHeadingRe.FindStringSubmatch(line); len(match) > 1 {
 			flushNode()
-			normName := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(m[1])), " ", "_")
+			normName := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(match[1])), " ", "_")
 			if _, exists := nodes[normName]; !exists {
 				nodeOrder = append(nodeOrder, normName)
 			}
@@ -145,16 +153,16 @@ func Parse(markdown string) Graph {
 		}
 
 		if currNode != nil {
-			if m := edgeRe.FindStringSubmatch(line); len(m) > 2 {
+			if match := edgeRe.FindStringSubmatch(line); len(match) > 2 {
 				currNode.Edges = append(currNode.Edges, Edge{
-					Target:    strings.TrimSpace(m[1]),
-					Condition: strings.TrimSpace(m[2]),
+					Target:    strings.TrimSpace(match[1]),
+					Condition: strings.TrimSpace(match[2]),
 				})
 				continue
 			}
-			if m := annotationRe.FindStringSubmatch(line); len(m) > 2 {
+			if match := annotationRe.FindStringSubmatch(line); len(match) > 2 {
 				currNode.Annotations = append(currNode.Annotations, Annotation{
-					Name: strings.TrimSpace(m[1]),
+					Name: strings.TrimSpace(match[1]),
 					Args: map[string]interface{}{},
 				})
 				continue
@@ -164,14 +172,26 @@ func Parse(markdown string) Graph {
 	}
 	flushNode()
 
+	refused := ""
+	if fmDone && len(definedFields) > 0 {
+		refused = "flow defines its fields (" + strings.Join(definedFields, ", ") + "), and this kernel does not " +
+			"implement field definitions (SPEC section 4.5); run it on the Python or Rust kernel"
+		for nodeName, node := range nodes {
+			for edgeIndex := range node.Edges {
+				node.Edges[edgeIndex].Condition = "never"
+			}
+			nodes[nodeName] = node
+		}
+	}
+
 	if start == "" && len(nodeOrder) > 0 {
 		start = nodeOrder[0]
 	}
 
 	terminals := []string{}
-	for _, n := range nodeOrder {
-		if len(nodes[n].Edges) == 0 {
-			terminals = append(terminals, n)
+	for _, nodeName := range nodeOrder {
+		if len(nodes[nodeName].Edges) == 0 {
+			terminals = append(terminals, nodeName)
 		}
 	}
 
@@ -181,5 +201,6 @@ func Parse(markdown string) Graph {
 		Nodes:     nodes,
 		NodeOrder: nodeOrder,
 		Terminals: terminals,
+		Refused:   refused,
 	}
 }

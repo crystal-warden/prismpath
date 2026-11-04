@@ -2,8 +2,8 @@
 # Copyright 2026 Crystal Warden Supply Chain Labs LLC
 import pytest
 from prismpath import BaseConnector, node
-from prismpath.plugins.registry import worker_agent
-from prismpath.parser import parse_file
+from prismpath.plugins.registry import worker_for
+from prismpath.kernel.parser import parse_file
 
 class MockConnector(BaseConnector):
     def __init__(self):
@@ -139,7 +139,7 @@ def test_payload_flattener():
 
 
 def test_system_telemetry():
-    from prismpath.connector import SystemTelemetry
+    from prismpath.workers.connector import SystemTelemetry
     conn = SystemTelemetry()
     data = conn.ingest_payload()
     
@@ -179,7 +179,7 @@ def test_adjudicator_port_callable_driven(tmp_path):
         conn.adjudicate({"x": 1})
 
     # a non-JSON reply degrades to text, never a crash
-    out2 = conn.adjudicate({"x": 1}, generate=lambda p: "no json here")
+    out2 = conn.adjudicate({"x": 1}, generate=lambda prompt: "no json here")
     assert out2 == {"text": "no json here"}
 
 
@@ -189,7 +189,7 @@ def test_deferral_port_default_store(tmp_path, monkeypatch):
     BaseConnector.__init__(conn, name="defer_me")
     conn.defer_decision("AC-2", "insufficient evidence", {"score": 0.4})
     pend = conn.pending_deferrals()
-    assert [p["unit_id"] for p in pend] == ["AC-2"]
+    assert [pending_item["unit_id"] for pending_item in pend] == ["AC-2"]
     conn.resume_decision("AC-2", {"verdict": "met"}, actor="auditor@example")
     assert conn.pending_deferrals() == []
     rec = conn.deferrals.get("AC-2")
@@ -204,8 +204,8 @@ def test_sink_default_idempotent_jsonl(tmp_path):
     conn.emit_record({"id": "a1", "verdict": "ok"}, dest)
     conn.emit_record({"id": "a1", "verdict": "ok"}, dest)      # replay — must not double-write
     conn.emit_record({"id": "a2", "verdict": "watch"}, dest)
-    lines = [_json.loads(l) for l in open(dest)]
-    assert [l["id"] for l in lines] == ["a1", "a2"]
+    lines = [_json.loads(line) for line in open(dest)]
+    assert [record["id"] for record in lines] == ["a1", "a2"]
 
 
 def test_policy_hash_binds_the_flow_document(tmp_path):
@@ -213,7 +213,7 @@ def test_policy_hash_binds_the_flow_document(tmp_path):
     flow.write_text("## a\nDo.\n")
     h1 = BaseConnector.policy_hash_for(str(flow))
     assert h1.startswith("sha256:")
-    from prismpath.checkpoint import flow_hash, _flow_hash
+    from prismpath.ledgers.checkpoint import flow_hash, _flow_hash
     assert h1 == flow_hash(str(flow)) == _flow_hash(str(flow))  # public + back-compat alias
     flow.write_text("## a\nDo it differently.\n")
     assert BaseConnector.policy_hash_for(str(flow)) != h1, "an edited policy must change the hash"
@@ -221,12 +221,12 @@ def test_policy_hash_binds_the_flow_document(tmp_path):
 
 def test_registry_glue_connector_as_plugin(tmp_path, monkeypatch):
     """The one-line plugin pattern: WORKERS = MyConnector().get_workers() — resolvable through
-    the real registry, dispatched through worker_agent with _worker provenance."""
+    the real registry, dispatched through worker_for with _worker provenance."""
     import sys
     import types
     import importlib.metadata as ilmd
     from prismpath.plugins import registry
-    from prismpath.parser import parse
+    from prismpath.kernel.parser import parse
 
     conn = MockConnector()
     mod = types.ModuleType("fake_conn_plugin")
@@ -257,7 +257,8 @@ Watch.
 ## done
 """)
     assert registry.check_flow(graph) == []
-    agent = registry.worker_agent(graph, default=lambda n, i, s: {"text": n})
-    out = agent("observe", "Watch.", {})
+    worker = registry.worker_for(graph,
+                                 default=lambda node, instruction, state: {"text": node})
+    out = worker("observe", "Watch.", {})
     assert out["text"] == "observed alert"
     assert out["_worker"] == "mock_connector.observe", "provenance from the connector dispatch"
