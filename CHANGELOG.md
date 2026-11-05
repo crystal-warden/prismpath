@@ -6,7 +6,7 @@ frozen conformance vectors that changes an existing case bumps the spec version,
 is the spec-change review. Pre-1.0, minor versions may break APIs; the flow *format* is already
 spec stable.
 
-## [0.1.1] (not yet uploaded)
+## [0.1.2] (not yet uploaded)
 
 ### Summary since the 0.1.0 upload to PyPI
 
@@ -35,6 +35,13 @@ record, and some of them predate the upload.
   crash resume, and an unparseable audit log line fails `verify_log` rather than vanishing.
 - **Signed packs and hot swap.** A durable commit protocol, an explicit audit persistence step, and an
   active policy that survives a new process, so `swap attest` reports what a real swap left running.
+- **Signed roots and authorized flows.** A deployment's instance key (`ledger keygen`) signs a chained
+  root statement over its audit log, so a receipt verifies offline back to a root the deployment
+  signed and `trail` names a log cut short, a rewritten receipt, a foreign key or a broken chain. The
+  policy authority key signs an ordinary Markdown flow (`authorize sign`), and `run
+  --require-authorization` refuses a flow that is unsigned, edited after signing, signed by an unknown
+  or revoked key, or older than a version already accepted. Before this, nothing bound a receipt to
+  the deployment that wrote it, and a flow with semantic edges could not be authorized at all.
 - **Facet wire.** The refresh, tick replay, concentrator, receipt stream and spiral packing profiles
   (PROTOCOL.md sections 2.7 to 2.10) and a durable epoch journal.
 - **Mission Control.** Panels for inspect, quality, proof and policy, and a file picker instead of a
@@ -53,8 +60,57 @@ record, and some of them predate the upload.
   and RFC 3161 commands check for `ots`, `git` and `openssl` before they start. `calibrate`, `label` and
   `trail` refuse a missing log rather than reading it as empty. `init NAME` writes `NAME.md` and
   `NAME.tests.md`.
+- **Found by running every documented capability.** The browser playground, the first path in the
+  getting started guide, showed empty panels because the portable kernel imported `node:crypto`, which no
+  browser resolves; the kernel now carries its own SHA-256 and imports nothing, so the playground and the
+  bundles from `prismpath compile` load in a browser. `prismpath ledger anchor --repo` died on the
+  Flow-Ledger's `sha256:` output hashes; `verify --forbid` or `--reach` with a node name the flow does not
+  have said "proven unreachable" and passed, and now refuses; `test --emit-labels` records the embedder's
+  margin so `calibrate` has something to read, and `calibrate` refuses a log with no margins instead of
+  printing a threshold with a guarantee over nothing; `annotate` names a benchmark row that lacks `flow`
+  or names a node the flow does not have, and stops cleanly when its input ends; `facet decode` ends a
+  bad frame in one line; `prismpath --version` exists. `swap` takes the envelope by its `.json` file name
+  as well as its base path. Mission Control starts a sprint by module (the path it ran was an alias that
+  never started anything), answers a bad `queue/decide` with a 400, follows the flow and not its
+  `.tests.md` fixtures, and says which extra a missing `uvicorn` belongs to. The wheel carries the `.md`
+  flows its shipped examples run. Guides that named old module paths or an unquoted `@spawn` now match
+  the code.
 
 ### Added
+- **Root statements, signed with the deployment's instance key** (`prismpath/ledgers/root_statement.py`).
+  A statement is one JSON line in the file beside the audit log (`run.audit.jsonl` beside
+  `run.audit.roots.jsonl`) giving the Merkle root, the number of receipts it covers, the hash of the
+  statement before it, the time, the key id and public key, and the policy in force, with an Ed25519
+  signature over a domain prefix and the canonical bytes. `prismpath ledger keygen` writes the instance
+  key (private half 0600, never replaced once it exists). `run --audit-log PATH` writes one receipt per
+  decision and one for a refusal or park with its cause, and with `--instance-key` or
+  `PRISMPATH_INSTANCE_KEY`, or by default with the deployment's own key at `.prismpath/instance.key` (the state
+  directory), which it names when it uses it, signs a statement at the end of the run; without a key it says
+  the receipts are unsigned. The policy host, the crypto host and Mission Control sign after every audit event when
+  the variable is set, and the durable epoch journal signs each seal when given the key. `trail` reports signed, unsigned
+  or invalid; `--pub` pins the key, so a log with its statements deleted is invalid rather than
+  unsigned, and `--receipt IDX` checks one receipt through its inclusion path to the signed root.
+  `ledger anchor --statements` stamps the statement hashes, so the timestamp covers the signatures.
+  Logs written before this have no statements and still read and verify, reported as unsigned. The
+  signature checks are offline; an OpenTimestamps proof still needs Bitcoin block headers to verify.
+- **Flow manifests: the policy authority authorizes a Markdown flow** (`prismpath/hotswap/flow_authority.py`).
+  `prismpath authorize sign FLOW --priv authority.key --pub authority.pub --version N` writes
+  `FLOW.manifest.json` and `.sig` (the flow's sha256, name, version, field dictionary when defined,
+  key id, time); `authorize verify` checks it. `run --require-authorization --authority-pub PUB` (or
+  `PRISMPATH_REQUIRE_AUTHORIZATION` and `PRISMPATH_AUTHORITY_PUB`), and `resume` with the same flags,
+  refuse with exit 2 and the cause: `sig:missing`, `sig:invalid`, `sig:revoked-key`,
+  `manifest:key-id-mismatch`, `manifest:bad-format`, and two appended registry rows,
+  `flow:sha256-mismatch` (87) and `flow:version-replay` (88), the version floor kept in `--state-dir`.
+  The refusal is itself a receipt. Without the requirement a manifest that is present is verified and
+  reported. Receipts and root statements record the flow manifest hash, authority key id and version,
+  or `unauthorized`. The instance key and the authority key are kept apart: a host and `run` refuse an
+  instance key that is also a trusted authority key, and `authorize sign` refuses the key
+  `PRISMPATH_INSTANCE_KEY` names.
+- **Parity note, not ported.** The Rust hot swap host (`prismpath-hotswap-rs`), the Rust epoch chain
+  (`prismpath-telemetry-rs`), the eBPF receipt sealing (`prismpath-ebpf/seal_receipts.c`), the mesh
+  firmware receipts (`prismpath-hw/mesh/`), and the Rust, Go and JavaScript kernels and compiled bundles
+  write or carry receipts and roots without root statements, and none of them checks a flow manifest.
+  Their roots can still be anchored as before.
 - **A CycloneDX 1.6 SBOM for a signed policy pack, from the compliance emitter**
   (`adapters.compliance.emit.pack_sbom`, `python -m adapters.compliance.emit --pack-sbom`), beside its
   OSCAL and CycloneDX attestation output and validated with the same cached schemas. It restates the
@@ -186,7 +242,7 @@ record, and some of them predate the upload.
   and Err instead of panic on missing fields and out of range indices). One internal cleanup:
   the quantizer's remaining guarded `unwrap` became `is_none_or`. The codec path was already
   panic free; this closes the gap on the optional tier.
-- **prismpath-preflight, the adoption gate for the Facet codec** (`adapters/telemetry/preflight.py`).
+- **prismpath-preflight, the adoption gate for the Facet codec** (now `prismpath/telemetry/preflight.py`; in the package it runs as `python -m prismpath.telemetry.preflight`).
   One command takes a policy flow plus a sample of real events (NDJSON) and reports the derived
   codebook, exactly which events encode and why the rest do not (missing fields, unmapped nested
   paths via `--map`, out of partition values, float truncation), projected bytes per event next to
@@ -211,7 +267,7 @@ record, and some of them predate the upload.
   `facet-preflight 0.1.0` on the owner's go; the registry-installed binary verified end to end
   (`cargo install facet-preflight`, the name at publish time; since renamed, and the old crate
   deleted, see Changed above).
-- **facet-init, the migration drafter** (`adapters/telemetry/facet_init.py`). Reads the
+- **facet-init, the migration drafter** (now `prismpath/telemetry/facet_init.py`; in the package it runs as `python -m prismpath.telemetry.facet_init`). Reads the
   `vector.toml` an integrator already runs, transcribes every route and filter condition that is
   Level M expressible (`field OP const` under and/or/not, `includes([..], .field)` as `in`) into a
   DRAFT flow with the transforms chained as nodes, maps nested event paths to codec `field_paths`
