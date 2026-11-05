@@ -6,7 +6,87 @@ frozen conformance vectors that changes an existing case bumps the spec version,
 is the spec-change review. Pre-1.0, minor versions may break APIs; the flow *format* is already
 spec stable.
 
-## [0.1.2] (not yet uploaded)
+## [0.1.3] (not yet uploaded)
+
+The first upload to PyPI since 0.1.0: it carries everything listed under 0.1.2 below, which was tagged but
+superseded before any upload. It closes the gaps 0.1.2 left in its signed receipts work. Nothing here changes a format: root statements,
+flow manifests, receipts and bundles read exactly as 0.1.2 wrote them, and a 0.1.2 log verifies unchanged.
+
+### Added
+- **`resume` writes receipts and signs them like `run`.** It takes `--audit-log`, `--instance-key` and the
+  authorization flags, looks for the deployment's key the same way (the flag, `PRISMPATH_INSTANCE_KEY`, then
+  `<state dir>/instance.key`, named when used), writes a receipt for each decision taken since the
+  suspension and a root statement with the trigger `resume-end`, and leaves a signed refusal receipt when
+  the flow is not authorized. `seq` continues from the steps already taken, and each receipt carries
+  `resumed` and `prior_steps`. A resume that cannot resume (a choice that is not an edge, a run that
+  already finished) writes nothing.
+- **`trail --verify-bundle FILE --pub KEY` checks a receipt bundle with no log.** Receipt, leaf, inclusion
+  path, signed root, signature and key, offline. The result is `signed`, `signed-unpinned` or `invalid`
+  with `trail`'s exit codes (0, 0, 1); a file that is not a bundle, or has a damaged path or hash, is
+  `invalid` and not a traceback. `trail --receipt IDX --bundle-out FILE` writes the bundle, and a
+  `--json` report that carries one is accepted too. `--anchor-dir DIR [--label L]` adds the
+  OpenTimestamps step, which runs `ots verify` and so needs Bitcoin block data; the help says so.
+- **`ledger anchor --log run.audit.jsonl` anchors an audit log from the command line.** It stamps the
+  hash of the latest root statement when the log has any, otherwise the Merkle root, and the output says
+  which, with how many of the log's events that statement covers. A log that does not verify, or is
+  empty, is not anchored. The anchor leaves `log_<label>.json` beside the proof, and `ledger verify --log
+  run.audit.jsonl --out DIR [--pub KEY]` reads it: the log verifies, still holds the anchored statement or
+  root however much it has grown, and the proof verifies.
+- **The authorization check is a library call, and the places that load a flow to decide use it.**
+  `flow_authority.authorize_flow(path, policy)` returns what it found or raises `FlowNotAuthorized` with the
+  registry causes; `load_authorized` also parses the flow; `AuthorizationPolicy` names the settings and
+  falls back to `PRISMPATH_REQUIRE_AUTHORIZATION`, `PRISMPATH_AUTHORITY_PUB` and `PRISMPATH_STATE_DIR`.
+  `checkpoint.run_durable`, `checkpoint.resume` and `ledger_runner.run_ledgered_loop` call it, so
+  the timeout scheduler (which now skips a refused flow and carries on), `compose` and a Mission Control
+  sprint that runs the sprint flow cannot step around it. `compose` takes the authorization flags,
+  checks each fan-out's parent and child flow before it spawns or resumes anything, and exits 2 when one
+  is refused. Mission Control refuses to start such a sprint and records `sprint.refused`.
+
+### Changed
+- **Mission Control's `/prove/audit` reports signing status** (`signing`, and `ok`): the status `trail`
+  would give, the keys that signed, the events covered, the findings, and whether this console's own key
+  made the statements. `valid` is unchanged.
+- **Statement verification and signing are linear in the length of the log.** A log signed after every
+  event rebuilt the Merkle tree once per statement, both when writing and when checking. The root is now
+  kept as leaves arrive (`root_statement.MerkleAccumulator`) and the roots at every signed count come from
+  one pass. On the development machine 4,000 events signed after each took 11.96 s to write and 3.14 s to
+  verify before, and 4.77 s and 0.27 s now (8,000 events: 10.64 s and 0.52 s; what remains of the write is
+  the signature and two `fsync` calls per event). The statement format is the same, and a test pins the new
+  root equal to the old for every count to 300.
+
+### Rust verification of signed receipts
+
+- **`prismpath-hotswap-rs` verifies what 0.1.2 signs.** New modules `root_statement`, `merkle` and
+  `flow_authority` check root statements (form, key id, Ed25519 signature over the domain prefixed
+  canonical bytes, the `prev` chain, leaf counts, the root against a log's leaves, truncation, pinned
+  keys, policy authority keys), whole audit trails (`verify_trail`, the Rust `AuditLog.verify_statements`),
+  one receipt bundle offline (`verify_receipt_bundle`, with `pinned`), the instance and authority key
+  separation (`check_separation`), and flow manifests (`verify_flow`) with the same registry causes
+  (`sig:missing`, `sig:invalid`, `sig:revoked-key`, `manifest:key-id-mismatch`, `manifest:bad-format`,
+  `flow:sha256-mismatch`, `flow:version-replay`) and the same version floor. Findings, statuses and
+  checks carry the Python names. Verify only: nothing in the crate signs a statement or a manifest,
+  generates a key or loads a private one for them. The crate's README lists where it is stricter than
+  Python (small order keys, a boolean is not an integer, a flow that is not UTF-8) and what it does not
+  read as Python does (integers past 64 bits, `NaN` and `Infinity`).
+- **Frozen cross-language vectors**, `prismpath/portable/conformance/receipts.json`: 287 cases (56
+  canonical JSON, 14 Merkle, 83 audit trails, 64 receipt bundles, 59 flow manifests, 6 version floor
+  sequences, 5 key separation), each verdict produced by running the Python reference, covering a
+  rewritten leaf, a truncated log, a wrong key, a broken or reordered chain, a bad signature, a flow
+  edited by one byte, a version replay, a revoked key and an instance key presented as an authority.
+  `prismpath/portable/gen_receipt_fixtures.py` writes them from fixed keys and clocks, so regeneration
+  is byte identical; `prismpath/tests/test_receipt_vectors.py` refuses drift and replays every case
+  through Python, and `prismpath-hotswap-rs/tests/test_receipt_verify.rs` replays them through Rust,
+  which agrees on all 287. The bundle cases cover 0.1.3's bundle checks: the `status` (`signed`,
+  `signed-unpinned`, `invalid`), the `index` check (the receipt's `idx` is the bundle's `index`), the
+  `covered` check (`0 <= index < leaves`), and a bundle that is not shaped like one, which is `invalid`
+  with the `problem` Python gives and no longer an error in either language (only a statement whose
+  `key_id` is not text still raises, and Rust returns `Err` there).
+- `prismpath_rs::durable::py_canonical_string` writes floats as Python's `repr` does (`1e-05`,
+  `1.5e+20`, `1e+16`); it had used Rust's own spelling outside the range `1e-4` to `1e16`, which
+  would have changed a receipt's leaf. Existing frozen corpora are unchanged.
+- The hot swap crate is in CI (it already was, in `ci.yml`); its README and `docs/SYSTEM_MAP.md` said it was not.
+
+## [0.1.2] (tagged, superseded before upload; never on PyPI)
 
 ### Summary since the 0.1.0 upload to PyPI
 
@@ -110,7 +190,10 @@ record, and some of them predate the upload.
   (`prismpath-telemetry-rs`), the eBPF receipt sealing (`prismpath-ebpf/seal_receipts.c`), the mesh
   firmware receipts (`prismpath-hw/mesh/`), and the Rust, Go and JavaScript kernels and compiled bundles
   write or carry receipts and roots without root statements, and none of them checks a flow manifest.
-  Their roots can still be anchored as before.
+  Their roots can still be anchored as before. *Since this note was written (Unreleased, above):*
+  `prismpath-hotswap-rs` now verifies root statements, audit trails, receipt bundles and flow manifests
+  the Python engine produces, against frozen vectors; none of the ports writes a root statement or
+  signs a flow manifest, and the other ports still neither verify nor check them.
 - **A CycloneDX 1.6 SBOM for a signed policy pack, from the compliance emitter**
   (`adapters.compliance.emit.pack_sbom`, `python -m adapters.compliance.emit --pack-sbom`), beside its
   OSCAL and CycloneDX attestation output and validated with the same cached schemas. It restates the

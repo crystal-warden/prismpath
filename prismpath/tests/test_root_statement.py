@@ -59,6 +59,23 @@ def test_merkle_root_is_the_ledger_root():
         assert rs.merkle_root(leaves[:count]) == expected
 
 
+def test_the_accumulator_is_the_same_root_for_every_count():
+    leaves = [rs.canon.sha256_hex(bytes([index % 256, index // 256])) for index in range(300)]
+    accumulator = rs.MerkleAccumulator()
+    assert accumulator.root() == ""
+    for count, leaf in enumerate(leaves, start=1):
+        accumulator.add(leaf)
+        assert accumulator.count == count
+        assert accumulator.root() == rs.merkle_root(leaves[:count]), count
+    assert rs.MerkleAccumulator(leaves).root() == rs.merkle_root(leaves)
+
+
+def test_prefix_roots_answer_every_count_in_one_pass():
+    leaves = [rs.canon.sha256_hex(bytes([index])) for index in range(40)]
+    roots = rs.prefix_roots(leaves, [40, 0, 7, 7, 33, 41, -1, "x"])
+    assert roots == {count: rs.merkle_root(leaves[:count]) for count in (0, 7, 33, 40)}
+
+
 def test_statements_sit_beside_the_log():
     assert rs.statements_path_for("run.audit.jsonl") == "run.audit.roots.jsonl"
     assert rs.statements_path_for("state/swaps.log") == "state/swaps.log.roots.jsonl"
@@ -308,6 +325,39 @@ def test_a_policy_host_signs_after_every_audit_event(key, tmp_path):
     assert report["status"] == rs.SIGNED and report["statements"] == len(host.audit.events) == 2
 
 
+def test_a_log_signed_after_every_event_verifies_in_linear_time(key, tmp_path, monkeypatch):
+    """A few thousand events with a statement after each: the work is counted in hash operations, not
+    seconds, so the test does not depend on the machine. Rebuilding the tree once per statement would
+    cost about n squared over two (more than three million here), against under fifty thousand."""
+    count = 2500
+    hashes = {"calls": 0}
+    original = ledger_ots.node_hash
+
+    def counting(payload):
+        hashes["calls"] += 1
+        return original(payload)
+
+    monkeypatch.setattr(ledger_ots, "node_hash", counting)
+    log = audit_log.AuditLog(str(tmp_path / "long.audit.jsonl"), instance_key=key, sign_appends=True)
+    for index in range(count):
+        log.append("engine", "decision", {"seq": index, "cause": 0})
+    assert hashes["calls"] < 20 * count                      # signing is linear too
+    hashes["calls"] = 0
+    reopened = audit_log.AuditLog(log.path)
+    report = reopened.verify_statements([key.public_raw])
+    assert report["status"] == rs.SIGNED and report["statements"] == count and report["unsigned_tail"] == 0
+    assert hashes["calls"] < 20 * count, hashes["calls"]
+    # and a receipt rewritten early is still found, with the range it bounds
+    lines = open(log.path).read().splitlines()
+    event = json.loads(lines[10]); event["data"]["cause"] = 99; lines[10] = json.dumps(event)
+    open(log.path, "w").write("\n".join(lines) + "\n")
+    hashes["calls"] = 0
+    bad = audit_log.AuditLog(log.path).verify_statements([key.public_raw])
+    assert bad["status"] == rs.INVALID
+    assert next(f for f in bad["findings"] if f["finding"] == "root_mismatch")["leaf_range"] == [10, 10]
+    assert hashes["calls"] < 20 * count
+
+
 def test_a_statement_signed_by_a_key_that_signed_a_pack_is_flagged(key, tmp_path):
     log = audit_log.AuditLog(str(tmp_path / "swaps.log"), instance_key=key, sign_appends=True)
     log.append("policy_host", "swap", {"to_hash": "ab" * 32, "version": 1, "key_id": key.key_id, "result": "accepted"})
@@ -335,6 +385,150 @@ def test_a_receipt_no_statement_covers_says_so(key, tmp_path):
     log.append("engine", "decision", {"seq": 2, "cause": 0})
     with pytest.raises(LookupError, match="no root statement covers receipt 2"):
         _reopen(log).receipt_bundle(2)
+
+
+# ------------------------------------------------------------------ a bundle, checked by the person who was handed it
+
+def _bundle_file(tmp_path, key, index=4):
+    log = _signed_log(tmp_path, key)
+    path = str(tmp_path / "bundle.json")
+    json.dump(_reopen(log).receipt_bundle(index), open(path, "w"))
+    return log, path
+
+
+def test_trail_writes_a_bundle_and_verify_bundle_checks_it_without_the_log(key, keys, tmp_path, capsys):
+    log = _signed_log(tmp_path, key)
+    bundle_path = str(tmp_path / "bundle.json")
+    code, out, _err = _run(capsys, "trail", log.path, "--pub", keys["public"], "--receipt", "4", "--bundle-out", bundle_path)
+    assert code == 0 and f"bundle written to {bundle_path}" in out
+    os.remove(log.path)                                       # the reader has the bundle and the key, nothing else
+    os.remove(log.statements_path)
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--pub", keys["public"])
+    assert code == 0 and "status signed" in out and "receipt 4: verifies" in out and f"key {keys['fingerprint']} pinned" in out
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--pub", keys["public"], "--json")
+    result = json.loads(out)
+    assert code == 0 and result["status"] == "signed" and result["ok"] and result["checks"]["signature"] is True
+    assert result["index"] == 4 and result["statement"] == 1 and result["key"] == keys["fingerprint"]
+
+
+def test_a_bundle_with_no_pinned_key_is_signed_unpinned_and_says_so(key, keys, tmp_path, capsys):
+    _log, bundle_path = _bundle_file(tmp_path, key)
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle_path)
+    assert code == 0 and "status signed-unpinned" in out and "no key was pinned" in out and "not pinned" in out
+
+
+def test_a_bundle_checked_against_another_key_is_invalid(key, tmp_path, capsys):
+    _log, bundle_path = _bundle_file(tmp_path, key)
+    other = rs.keygen(str(tmp_path / "other"))
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--pub", other["public"])
+    assert code == 1 and "status invalid" in out and "NOT the pinned key" in out
+
+
+def test_an_edited_bundle_is_invalid_at_the_step_that_changed(key, keys, tmp_path, capsys):
+    _log, bundle_path = _bundle_file(tmp_path, key)
+    bundle = json.load(open(bundle_path))
+    bundle["receipt"]["data"]["target"] = "z"
+    json.dump(bundle, open(bundle_path, "w"))
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--pub", keys["public"])
+    assert code == 1 and "status invalid" in out and "leaf CHANGED" in out
+    bundle = json.load(open(_bundle_file(tmp_path, key)[1]))
+    bundle["statement"]["root"] = "00" * 32                    # a statement edited after signing
+    json.dump(bundle, open(bundle_path, "w"))
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--pub", keys["public"])
+    assert code == 1 and "inclusion FAILS" in out and "signature FAILS" in out
+
+
+def test_a_bundle_from_the_json_report_is_accepted(key, keys, tmp_path, capsys):
+    log = _signed_log(tmp_path, key)
+    code, out, _err = _run(capsys, "trail", log.path, "--receipt", "1", "--json")
+    report = tmp_path / "report.json"
+    report.write_text(out)
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", str(report), "--pub", keys["public"])
+    assert code == 0 and "status signed" in out
+
+
+@pytest.mark.parametrize("damage", ["no-statement", "bad-path", "bad-leaf", "not-an-object", "index-lies"])
+def test_a_malformed_bundle_is_invalid_not_a_traceback(key, keys, tmp_path, capsys, damage):
+    _log, bundle_path = _bundle_file(tmp_path, key)
+    bundle = json.load(open(bundle_path))
+    if damage == "no-statement":
+        del bundle["statement"]
+    elif damage == "bad-path":
+        bundle["path"] = [["X", "zz"]]
+    elif damage == "bad-leaf":
+        bundle["leaf"] = "not hex"
+    elif damage == "not-an-object":
+        bundle = ["receipt"]
+    elif damage == "index-lies":
+        bundle["index"] = 3
+    json.dump(bundle, open(bundle_path, "w"))
+    code, out, err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--pub", keys["public"])
+    assert code == 1 and ("INVALID" in out or "status invalid" in out) and err == ""
+
+
+def test_verify_bundle_refuses_what_is_not_a_json_file_or_is_mixed_with_a_log(key, keys, tmp_path, capsys):
+    log, bundle_path = _bundle_file(tmp_path, key)
+    (tmp_path / "garbage.json").write_text("{nope")
+    code, _out, err = _run(capsys, "trail", "--verify-bundle", str(tmp_path / "garbage.json"))
+    assert code == 2 and err.startswith("prismpath trail: an input file is not valid JSON")
+    code, _out, err = _run(capsys, "trail", "--verify-bundle", str(tmp_path / "missing.json"))
+    assert code == 2 and "missing.json: No such file or directory" in err
+    code, _out, err = _run(capsys, "trail", log.path, "--verify-bundle", bundle_path)
+    assert code == 2 and "checks a bundle on its own" in err
+    code, _out, err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--receipt", "1")
+    assert code == 2 and "--receipt reads a log" in err
+    code, _out, err = _run(capsys, "trail")
+    assert code == 2 and "name an audit log to read, or --verify-bundle FILE" in err
+    code, _out, err = _run(capsys, "trail", log.path, "--bundle-out", str(tmp_path / "b.json"))
+    assert code == 2 and "pass --receipt IDX" in err
+
+
+def test_a_bundle_no_statement_covers_cannot_be_written(key, tmp_path, capsys):
+    log = _signed_log(tmp_path, key, runs=((2, "run-end"),))
+    log.append("engine", "decision", {"seq": 2, "cause": 0})
+    code, _out, err = _run(capsys, "trail", log.path, "--receipt", "2", "--bundle-out", str(tmp_path / "b.json"))
+    assert code == 2 and "no bundle to write: no root statement covers receipt 2" in err
+    assert not os.path.exists(tmp_path / "b.json")
+
+
+def test_the_anchor_step_checks_the_statement_hash_and_needs_the_ots_program(key, keys, tmp_path, capsys, monkeypatch):
+    _log, bundle_path = _bundle_file(tmp_path, key)
+    seen = {}
+
+    def verify_unit(leaf, out_dir, label):
+        seen.update(leaf=leaf, out_dir=out_dir, label=label)
+        return seen.get("answer")
+
+    monkeypatch.setattr(ledger_ots, "verify_unit", verify_unit)
+    monkeypatch.setattr("shutil.which", lambda program: None)
+    code, _out, err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--anchor-dir", str(tmp_path / "proofs"))
+    assert code == 2 and "needs the `ots` program on PATH" in err and not seen
+    monkeypatch.setattr("shutil.which", lambda program: f"/usr/bin/{program}")
+    statement_hash = rs.statement_hash(json.load(open(bundle_path))["statement"])
+
+    seen["answer"] = {"merkle_ok": True, "ots_ok": True, "root": statement_hash}
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--pub", keys["public"],
+                           "--anchor-dir", str(tmp_path / "proofs"), "--label", "audit")
+    assert code == 0 and "its OpenTimestamps proof verifies" in out
+    assert seen["leaf"] == statement_hash and seen["label"] == "audit" and seen["out_dir"] == str(tmp_path / "proofs")
+
+    seen["answer"] = {"merkle_ok": False, "reason": "output-hash not in this anchor batch"}
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--pub", keys["public"],
+                           "--anchor-dir", str(tmp_path / "proofs"))
+    assert code == 1 and "anchor: FAILS: output-hash not in this anchor batch" in out and "ledger anchor --statements" in out
+
+    seen["answer"] = {"merkle_ok": True, "ots_ok": False, "ots_verify": "Pending confirmation in Bitcoin blockchain"}
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle_path, "--pub", keys["public"],
+                           "--anchor-dir", str(tmp_path / "proofs"), "--json")
+    result = json.loads(out)
+    assert code == 1 and result["status"] == "invalid" and result["anchor"]["ok"] is False and result["checks"]["signature"] is True
+
+
+def test_the_help_says_the_anchor_step_needs_bitcoin_block_data(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["trail", "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "--verify-bundle" in help_text and "needs Bitcoin block data" in help_text and "Offline" in help_text
 
 
 # ------------------------------------------------------------------ the epoch journal
@@ -438,6 +632,139 @@ def test_run_refuses_an_instance_key_with_nothing_to_sign(keys, tmp_path, capsys
     assert code == 2 and err.strip() == "prismpath run: --instance-key signs the run's receipts; pass --audit-log PATH as well"
 
 
+ASKING = """---
+name: asking
+start: a
+---
+
+## a
+Go.
+-> b: when always
+
+## b
+Ask.
+-> c: when tests_pass
+-> d: else
+
+## c
+Done.
+
+## d
+Other.
+"""
+
+
+def _suspended(tmp_path, name="s.json", crash=False):
+    """A checkpoint for ASKING: parked for a human at b (or, with crash, cut off at b), one step taken."""
+    from prismpath.ledgers import checkpoint
+    flow = tmp_path / "asking.md"
+    flow.write_text(ASKING)
+
+    def agent(node, instruction, state):
+        if node == "b":
+            if crash:
+                raise RuntimeError("worker died")
+            return {"needs_human": True}
+        return {"always": True}
+
+    path = str(tmp_path / name)
+    if crash:
+        with pytest.raises(RuntimeError):
+            checkpoint.run_durable(str(flow), agent, path)
+    else:
+        assert checkpoint.run_durable(str(flow), agent, path).stopped == "needs_human"
+    return str(flow), path
+
+
+def test_resume_writes_receipts_for_the_steps_it_took_and_signs_them(keys, tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(rs.INSTANCE_KEY_ENV, raising=False)
+    flow, checkpoint_path = _suspended(tmp_path)
+    audit = str(tmp_path / "resumed.audit.jsonl")
+    code, out, _err = _run(capsys, "resume", checkpoint_path, "--choose", "c", "--audit-log", audit,
+                           "--instance-key", keys["private"])
+    assert code == 0 and "Path: ['a', 'b', 'c']" in out
+    assert "Receipts: 1 appended" in out and f"by instance key {keys['fingerprint']}" in out
+    receipts = [json.loads(line)["data"] for line in open(audit)]
+    assert len(receipts) == 1                                   # the human's choice; a -> b was run's, before the suspension
+    assert receipts[0]["node"] == "b" and receipts[0]["target"] == "c" and receipts[0]["how"] == "human"
+    assert receipts[0]["seq"] == 1 and receipts[0]["resumed"] is True and receipts[0]["prior_steps"] == 1
+    assert receipts[0]["policy"]["flow_sha256"] == rs.canon.sha256_hex(open(flow, "rb").read())
+    statement = rs.read_statements(rs.statements_path_for(audit))[0][0]
+    assert statement["trigger"] == "resume-end" and statement["policy"] == receipts[0]["policy"]
+    code, out, _err = _run(capsys, "trail", audit, "--pub", keys["public"], "--receipt", "0")
+    assert code == 0 and "(pinned)" in out and "receipt 0: verifies" in out
+
+
+def test_resume_after_a_crash_records_the_steps_taken_since(keys, tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(rs.INSTANCE_KEY_ENV, raising=False)
+    _flow, checkpoint_path = _suspended(tmp_path, crash=True)
+    audit = str(tmp_path / "crash.audit.jsonl")
+    code, out, _err = _run(capsys, "resume", checkpoint_path, "--audit-log", audit, "--instance-key", keys["private"])
+    receipt = json.loads(open(audit).readline())["data"]
+    assert code == 0 and receipt["node"] == "b" and receipt["target"] == "c" and receipt["how"] == "deterministic"
+    assert receipt["seq"] == 1 and receipt["prior_steps"] == 1
+
+
+def test_resume_signs_by_default_with_the_key_in_the_state_directory(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(rs.INSTANCE_KEY_ENV, raising=False)
+    monkeypatch.delenv("PRISMPATH_STATE_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    made = rs.keygen(str(tmp_path / ".prismpath"))
+    _flow, checkpoint_path = _suspended(tmp_path)
+    code, out, _err = _run(capsys, "resume", checkpoint_path, "--choose", "d", "--audit-log", "d.audit.jsonl")
+    assert code == 0 and "Signed: root statement 0" in out
+    assert f"Signing with the deployment's instance key {made['fingerprint']}, found at " in out
+    assert _run(capsys, "trail", "d.audit.jsonl", "--pub", made["public"])[0] == 0
+
+
+def test_resume_says_plainly_when_it_is_not_signing(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(rs.INSTANCE_KEY_ENV, raising=False)
+    monkeypatch.delenv("PRISMPATH_STATE_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    _flow, checkpoint_path = _suspended(tmp_path)
+    code, out, _err = _run(capsys, "resume", checkpoint_path, "--choose", "c", "--audit-log", "u.audit.jsonl")
+    assert code == 0 and "Not signed: no instance key" in out
+    assert not os.path.exists(tmp_path / "u.audit.roots.jsonl")
+
+
+def test_resume_with_a_key_and_no_audit_log_says_so(keys, tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(rs.INSTANCE_KEY_ENV, raising=False)
+    _flow, checkpoint_path = _suspended(tmp_path)
+    code, _out, err = _run(capsys, "resume", checkpoint_path, "--choose", "c", "--instance-key", keys["private"])
+    assert code == 2 and err.strip() == "prismpath resume: --instance-key signs the run's receipts; pass --audit-log PATH as well"
+    monkeypatch.setenv(rs.INSTANCE_KEY_ENV, keys["private"])
+    code, out, _err = _run(capsys, "resume", checkpoint_path, "--choose", "c")
+    assert code == 0 and "Not signed: no receipts were written" in out
+
+
+def test_resume_that_cannot_resume_writes_no_receipt(keys, tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(rs.INSTANCE_KEY_ENV, raising=False)
+    _flow, checkpoint_path = _suspended(tmp_path)
+    audit = str(tmp_path / "none.audit.jsonl")
+    code, out, _err = _run(capsys, "resume", checkpoint_path, "--choose", "zzz", "--audit-log", audit,
+                           "--instance-key", keys["private"])
+    assert code == 1 and "cannot resume" in out and not os.path.exists(audit)
+
+
+def test_resume_that_refuses_leaves_a_signed_refusal_receipt(keys, tmp_path, capsys, monkeypatch):
+    from prismpath.hotswap import policy_pack
+    monkeypatch.delenv(rs.INSTANCE_KEY_ENV, raising=False)
+    authority = policy_pack.keygen(str(tmp_path / "authority"))
+    _flow, checkpoint_path = _suspended(tmp_path)
+    audit = str(tmp_path / "refused.audit.jsonl")
+    code, out, err = _run(capsys, "resume", checkpoint_path, "--choose", "c", "--audit-log", audit,
+                          "--instance-key", keys["private"], "--require-authorization", "--authority-pub",
+                          authority["public"], "--state-dir", str(tmp_path / "state"))
+    assert code == 2 and "Path:" not in out
+    assert err.strip() == "prismpath resume: refused: the flow is not authorized: sig:missing (cause 1)"
+    receipt = json.loads(open(audit).readline())["data"]
+    assert receipt["outcome"] == "refused" and receipt["cause"] == 1 and receipt["node"] == "b"
+    assert receipt["resumed"] is True and receipt["policy"]["authorization"] == "unauthorized"
+    assert audit_log.AuditLog(audit).verify_statements([rs.load_public(keys["public"])])["status"] == rs.SIGNED
+    from prismpath.ledgers import checkpoint
+    assert checkpoint.load_checkpoint(checkpoint_path)["stopped"] == "needs_human"      # nothing ran
+
+
 def test_ledger_keygen_and_its_refusal(tmp_path, capsys):
     code, out, _err = _run(capsys, "ledger", "keygen", "--out", str(tmp_path / "k"))
     made = json.loads(out)
@@ -456,11 +783,161 @@ def test_ledger_anchor_stamps_the_statement_hashes(key, tmp_path, capsys, monkey
     assert code == 0 and seen["hashes"] == [rs.statement_hash(statement) for statement in statements]
 
 
+# ------------------------------------------------------------------ ledger anchor --log, and its verify
+
+@pytest.fixture()
+def fake_ots(tmp_path, monkeypatch):
+    """An `ots` program on PATH that stamps by writing the .ots file and verifies by exiting with the number
+    in `ots.rc` beside it (0 when there is none), so the real subprocess path runs without a calendar
+    server or Bitcoin block data."""
+    if os.name == "nt":
+        pytest.skip("a shell stub stands in for ots")
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir()
+    program = bindir / "ots"
+    program.write_text('#!/bin/sh\ncase "$1" in\n  stamp) echo stamped > "$2.ots"; exit 0;;\n'
+                       '  verify) echo "Success! Bitcoin block 1 attests existence"; exit $(cat "$0.rc" 2>/dev/null || echo 0);;\n'
+                       '  *) exit 0;;\nesac\n')
+    program.chmod(0o755)
+    monkeypatch.setattr(ledger_ots, "_OTSENV", {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ["PATH"]})
+    monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ["PATH"])
+    return bindir
+
+
+def test_anchor_log_stamps_the_latest_statement_and_says_which(key, tmp_path, capsys, fake_ots):
+    log = _signed_log(tmp_path, key)                                   # 3 statements over 9 events
+    for index in range(2):
+        log.append("engine", "decision", {"seq": 9 + index, "cause": 0})
+    statements = rs.read_statements(log.statements_path)[0]
+    code, out, err = _run(capsys, "ledger", "anchor", "--log", log.path, "--out", str(tmp_path / "proofs"))
+    result = json.loads(out)
+    anchored = result["anchored"]
+    assert code == 0 and result["stamped"] is True
+    assert anchored["kind"] == "root-statement" and anchored["hash"] == rs.statement_hash(statements[-1])
+    assert anchored["statement"] == 2 and anchored["leaves"] == 9 and anchored["log_leaves"] == 11 and anchored["unsigned_tail"] == 2
+    assert result["root"] == anchored["hash"]                          # the single hash is its own Merkle root
+    assert "anchoring root statement 2" in err and "covers 9 of the log's 11 events" in err
+    assert "the 2 later events are not covered" in err
+    assert os.path.exists(tmp_path / "proofs" / "root_v1.txt.ots") and os.path.exists(tmp_path / "proofs" / "log_v1.json")
+
+
+def test_anchor_log_without_statements_stamps_the_merkle_root_and_says_so(tmp_path, capsys, fake_ots):
+    log = audit_log.AuditLog(str(tmp_path / "old.audit.jsonl"))
+    for index in range(3):
+        log.append("gate", "decision", {"seq": index, "cause": 0})
+    code, out, err = _run(capsys, "ledger", "anchor", "--log", log.path, "--out", str(tmp_path / "proofs"), "--label", "m")
+    anchored = json.loads(out)["anchored"]
+    assert code == 0 and anchored["kind"] == "merkle-root" and anchored["hash"] == log.current_root() and anchored["leaves"] == 3
+    assert "anchoring the Merkle root" in err and "not who recorded them" in err
+
+
+@pytest.mark.parametrize("damage, message", [("edited", "root statements do not verify (root_mismatch)"),
+                                              ("truncated", "root statements do not verify (log_truncated)"),
+                                              ("unreadable", "unreadable lines")])
+def test_anchor_log_refuses_a_log_that_does_not_verify(key, tmp_path, capsys, fake_ots, damage, message):
+    log = _signed_log(tmp_path, key)
+    lines = open(log.path).read().splitlines()
+    if damage == "edited":
+        event = json.loads(lines[1]); event["data"]["cause"] = 5; lines[1] = json.dumps(event)
+    elif damage == "truncated":
+        lines = lines[:-3]
+    else:
+        lines[2] = "{not json"
+    open(log.path, "w").write("\n".join(lines) + "\n")
+    code, out, err = _run(capsys, "ledger", "anchor", "--log", log.path, "--out", str(tmp_path / "proofs"))
+    assert code == 1 and out == "" and message in err and "not anchoring" in err
+    assert not os.path.exists(tmp_path / "proofs")
+
+
+def test_anchor_log_refuses_an_empty_log_and_a_mixed_command(tmp_path, capsys, fake_ots):
+    empty = tmp_path / "empty.audit.jsonl"
+    empty.write_text("")
+    code, _out, err = _run(capsys, "ledger", "anchor", "--log", str(empty))
+    assert code == 1 and "nothing to anchor" in err
+    code, _out, err = _run(capsys, "ledger", "anchor", "--log", str(empty), "--statements", str(empty))
+    assert code == 2 and "drop --repo and --statements" in err
+    code, _out, err = _run(capsys, "ledger", "anchor", "--log", str(tmp_path / "nope.jsonl"))
+    assert code == 2 and "nope.jsonl: No such file or directory" in err
+
+
+def test_verify_log_checks_the_log_holds_the_anchor_and_the_proof(key, keys, tmp_path, capsys, fake_ots):
+    log = _signed_log(tmp_path, key)
+    proofs = str(tmp_path / "proofs")
+    assert _run(capsys, "ledger", "anchor", "--log", log.path, "--out", proofs)[0] == 0
+    log.append("engine", "decision", {"seq": 99, "cause": 0})            # the log moves on after the anchor
+    log.checkpoint("run-end")
+    code, out, _err = _run(capsys, "ledger", "verify", "--log", log.path, "--out", proofs, "--pub", keys["public"])
+    report = json.loads(out)
+    assert code == 0 and report["ok"] and report["log_holds_anchor"] and report["signing"] == "signed"
+    assert report["anchored"]["kind"] == "root-statement" and report["proof"]["merkle_ok"] and report["proof"]["ots_ok"]
+    (fake_ots / "ots.rc").write_text("1")                                 # Bitcoin has not confirmed it, or no block data
+    code, out, _err = _run(capsys, "ledger", "verify", "--log", log.path, "--out", proofs)
+    assert code == 1 and json.loads(out)["proof"]["ots_ok"] is False and json.loads(out)["log_holds_anchor"] is True
+
+
+def test_verify_log_notices_what_the_anchor_no_longer_covers(key, tmp_path, capsys, fake_ots):
+    log = _signed_log(tmp_path, key)
+    proofs = str(tmp_path / "proofs")
+    assert _run(capsys, "ledger", "anchor", "--log", log.path, "--out", proofs)[0] == 0
+    lines = open(log.statements_path).read().splitlines()
+    open(log.statements_path, "w").write("\n".join(lines[:-1]) + "\n")       # the anchored statement is dropped
+    code, out, _err = _run(capsys, "ledger", "verify", "--log", log.path, "--out", proofs)
+    report = json.loads(out)
+    assert code == 1 and report["log_holds_anchor"] is False
+    lines = open(log.path).read().splitlines()
+    event = json.loads(lines[0]); event["data"]["cause"] = 7; lines[0] = json.dumps(event)
+    open(log.path, "w").write("\n".join(lines) + "\n")
+    code, out, _err = _run(capsys, "ledger", "verify", "--log", log.path, "--out", proofs)
+    assert code == 1 and json.loads(out)["log_verifies"] is True and json.loads(out)["signing"] == "invalid"
+
+
+def test_verify_log_of_a_merkle_root_anchor_survives_appends_and_notices_edits(tmp_path, capsys, fake_ots):
+    log = audit_log.AuditLog(str(tmp_path / "old.audit.jsonl"))
+    for index in range(4):
+        log.append("gate", "decision", {"seq": index, "cause": 0})
+    proofs = str(tmp_path / "proofs")
+    assert _run(capsys, "ledger", "anchor", "--log", log.path, "--out", proofs)[0] == 0
+    log.append("gate", "decision", {"seq": 4, "cause": 0})
+    code, out, _err = _run(capsys, "ledger", "verify", "--log", log.path, "--out", proofs)
+    assert code == 0 and json.loads(out)["log_holds_anchor"] is True and json.loads(out)["signing"] == "unsigned"
+    lines = open(log.path).read().splitlines()
+    event = json.loads(lines[2]); event["data"]["cause"] = 9; lines[2] = json.dumps(event)
+    open(log.path, "w").write("\n".join(lines) + "\n")
+    code, out, _err = _run(capsys, "ledger", "verify", "--log", log.path, "--out", proofs)
+    assert code == 1 and json.loads(out)["log_holds_anchor"] is False
+
+
+def test_verify_log_without_an_anchor_record_says_what_to_run(key, tmp_path, capsys, fake_ots):
+    log = _signed_log(tmp_path, key)
+    code, _out, err = _run(capsys, "ledger", "verify", "--log", log.path, "--out", str(tmp_path / "proofs"))
+    assert code == 2 and "no log anchor record" in err and "ledger anchor --log" in err
+
+
+def test_a_bundle_checks_against_an_anchor_of_all_its_statements(key, keys, tmp_path, capsys, fake_ots):
+    log = _signed_log(tmp_path, key)
+    proofs = str(tmp_path / "proofs")
+    assert _run(capsys, "ledger", "anchor", "--statements", log.path, "--out", proofs)[0] == 0
+    bundle = str(tmp_path / "bundle.json")
+    assert _run(capsys, "trail", log.path, "--pub", keys["public"], "--receipt", "4", "--bundle-out", bundle)[0] == 0
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle, "--pub", keys["public"], "--anchor-dir", proofs)
+    assert code == 0 and "its OpenTimestamps proof verifies" in out
+    # anchoring only the latest statement timestamps the chain, but a bundle's own statement is not that leaf
+    other = str(tmp_path / "latest")
+    assert _run(capsys, "ledger", "anchor", "--log", log.path, "--out", other)[0] == 0
+    code, out, _err = _run(capsys, "trail", "--verify-bundle", bundle, "--pub", keys["public"], "--anchor-dir", other)
+    assert code == 1 and "not in this anchor batch" in out
+
+
 @pytest.mark.parametrize("argv", [["ledger", "keygen", "--out", "k"], ["trail", "run.audit.jsonl"],
-                                  ["run", "flow.md", "--audit-log", "x.audit.jsonl", "--instance-key", "keys/instance.key"]])
+                                  ["run", "flow.md", "--audit-log", "x.audit.jsonl", "--instance-key", "keys/instance.key"],
+                                  ["trail", "--verify-bundle", "bundle.json"],
+                                  ["resume", "s.json", "--choose", "c", "--audit-log", "x.audit.jsonl",
+                                   "--instance-key", "keys/instance.key"]])
 def test_no_cryptography_is_one_install_line(argv, key, keys, tmp_path):
     _signed_log(tmp_path, key)
     (tmp_path / "flow.md").write_text(FLOW)
+    _suspended(tmp_path)
+    json.dump(_reopen(_signed_log(tmp_path, key)).receipt_bundle(1), open(tmp_path / "bundle.json", "w"))
     res = _cli(*argv, block=["cryptography"], cwd=tmp_path)
     assert res.returncode == 2
     assert res.stderr.strip() == f"prismpath {argv[0]}: {INSTALL_LINE}"

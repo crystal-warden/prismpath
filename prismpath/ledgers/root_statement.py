@@ -194,8 +194,73 @@ def merkle_root(leaves: List[str]) -> str:
     while len(layer) > 1:
         if len(layer) % 2:
             layer = layer + [layer[-1]]
-        layer = [merkle._h(layer[index] + layer[index + 1]) for index in range(0, len(layer), 2)]
+        layer = [merkle.node_hash(layer[index] + layer[index + 1]) for index in range(0, len(layer), 2)]
     return layer[0].hex()
+
+
+class MerkleAccumulator:
+    """The same root, kept as leaves arrive: O(1) amortized to add a leaf and O(log n) to read the root.
+
+    It holds the roots of the complete subtrees (the "peaks", one per set bit of the leaf count) rather
+    than the leaves. The root of an odd-sized layer repeats its last node, so the root over n leaves is
+    the smallest peak raised to the height of the next one by hashing it with itself, then combined with
+    that peak on its left, and so on up. That is exactly what `merkle_root` computes, so a statement
+    signed from either verifies against the other; `test_root_statement` pins the two equal for every
+    count up to a few hundred. Writing a signed statement after every event, and checking a chain that
+    has one, then cost O(n) in all instead of O(n squared)."""
+
+    def __init__(self, leaves: Iterable[str] = ()):
+        self._peaks: List[Tuple[int, bytes]] = []        # (height, hash), tallest first
+        self.count = 0
+        for leaf in leaves:
+            self.add(leaf)
+
+    def add(self, leaf_hex: str) -> None:
+        height, node = 0, bytes.fromhex(leaf_hex)
+        # The peaks are a stack of perfect subtrees with strictly falling heights, like the set bits of the
+        # leaf count written in binary. A new leaf is a subtree of height 0; while the top of the stack has
+        # the same height the two are siblings, so they merge into one subtree a level higher (the old peak
+        # on the left, because it holds the earlier leaves). This is binary counter carry, which is why a
+        # leaf costs O(1) amortized.
+        while self._peaks and self._peaks[-1][0] == height:
+            node = merkle.node_hash(self._peaks.pop()[1] + node)
+            height += 1
+        self._peaks.append((height, node))
+        self.count += 1
+
+    def root(self) -> str:
+        if not self._peaks:
+            return ""
+        # Fold the peaks from the shortest, which holds the latest leaves, up to the tallest. The tree the
+        # reference builds pads every odd layer by repeating its last node, so a short peak sitting beside
+        # a taller one is hashed with itself, once per level it is missing, until it is as tall as the peak
+        # to its left, and only then paired with it. That rule is `ledger_ots.merkle_root_and_paths`'s
+        # "duplicate the last node if odd", and it has to match it exactly or the roots would differ.
+        height, node = self._peaks[-1]
+        for taller, peak in reversed(self._peaks[:-1]):
+            while height < taller:
+                node = merkle.node_hash(node + node)
+                height += 1
+            node = merkle.node_hash(peak + node)
+            height += 1
+        return node.hex()
+
+
+def prefix_roots(leaves: List[str], counts: Iterable[int]) -> Dict[int, str]:
+    """The root over the first n leaves for each n in `counts`, in one pass over the leaves. A count
+    past the end of `leaves` is left out."""
+    # A count that is not an int, or is outside the log, is left out and not an error: `verify_chain` asks
+    # `roots.get(count, "")` and reports a statement that claims more leaves than the log holds as
+    # `log_truncated` before it ever compares roots.
+    wanted = sorted({count for count in counts if isinstance(count, int) and 0 <= count <= len(leaves)})
+    roots: Dict[int, str] = {}
+    accumulator = MerkleAccumulator()
+    # Ascending order lets one accumulator serve every count: it only ever has to take more leaves.
+    for count in wanted:
+        while accumulator.count < count:
+            accumulator.add(leaves[accumulator.count])
+        roots[count] = accumulator.root()
+    return roots
 
 
 def signed_bytes(statement: dict) -> bytes:
@@ -323,12 +388,18 @@ def verify_chain(statements: List[dict], read_findings: List[dict], root_at: Cal
     mismatch_from: Optional[int] = None
     key_ids: List[str] = []
     for index, statement in enumerate(statements):
+        # An empty statement is a line that could not be read (already a finding from the reader); a
+        # statement of the wrong shape is reported here. Either way it stays in the chain as a link, with
+        # the hash of what is there (nothing, for a line that could not be read), so the next statement's
+        # `prev` is compared with the truth and a chain cannot be mended by deleting the damaged link.
         if not statement or not _well_formed(statement, log):
             if statement:
                 findings.append({"finding": "bad_format", "statement": index})
             prev_hash = statement_hash(statement) if statement else ""
             continue
         seq = statement["seq"]
+        # The key id must be the hash of the key the statement carries; only then is the signature checked
+        # (under that key), so a statement that names one key and was signed by another is one finding, not two.
         if key_id_of(bytes.fromhex(statement["public_key"])) != statement["key_id"]:
             findings.append({"finding": "key_id_mismatch", "statement": seq})
         elif not _verify_signature(statement):
@@ -336,15 +407,22 @@ def verify_chain(statements: List[dict], read_findings: List[dict], root_at: Cal
         if pinned_ids and statement["key_id"] not in pinned_ids:
             findings.append({"finding": "unpinned_key", "statement": seq,
                              "key": fingerprint(statement["key_id"])})
+        # A policy authority key authorizes flows and packs; it must never also attest what a deployment
+        # recorded, or whoever can replace the policy could also vouch for the record of running it.
         if statement["key_id"] in authority:
             findings.append({"finding": "authority_key", "statement": seq, "key": fingerprint(statement["key_id"])})
         if statement["key_id"] not in key_ids:
             key_ids.append(statement["key_id"])
+        # Each statement names the hash of the one before it, and carries its position, so a statement
+        # dropped, reordered, duplicated or replaced shows as a break at the first place it matters.
         if seq != index or statement["prev"] != prev_hash:
             findings.append({"finding": "chain_broken", "statement": seq, "position": index})
+        # A log only grows, so a later statement covering fewer leaves means events were dropped between them.
         if statement["leaves"] < prev_leaves:
             findings.append({"finding": "leaf_count_regressed", "statement": seq,
                              "leaves": statement["leaves"], "before": prev_leaves})
+        # A statement that covers more leaves than the log holds proves the log was cut after it was signed;
+        # there is no root to compare, because the leaves it signed are gone.
         if statement["leaves"] > total_leaves:
             findings.append({"finding": "log_truncated", "statement": seq,
                              "signed_leaves": statement["leaves"], "log_leaves": total_leaves})
@@ -391,21 +469,50 @@ def receipt_bundle(event: dict, leaves: List[str], index: int, statements: List[
     return {"receipt": event, "index": index, "leaf": leaves[index], "path": paths[index], "statement": covering}
 
 
+def bundle_problem(bundle) -> Optional[str]:
+    """Why `bundle` is not shaped like a receipt bundle, or None. A bundle read from a file is untrusted
+    input, so every field the check touches is looked at before it is used."""
+    if not isinstance(bundle, dict):
+        return "a bundle is a JSON object"
+    for name, kind in (("receipt", dict), ("index", int), ("leaf", str), ("path", list), ("statement", dict)):
+        if not isinstance(bundle.get(name), kind) or isinstance(bundle.get(name), bool):
+            return f"missing or malformed field {name!r}"
+    try:
+        bytes.fromhex(bundle["leaf"])
+        for step in bundle["path"]:
+            if not (isinstance(step, (list, tuple)) and len(step) == 2 and step[0] in ("L", "R")):
+                return "malformed inclusion path"
+            bytes.fromhex(step[1])
+    except (TypeError, ValueError):
+        return "the leaf and the inclusion path are hex hashes"
+    return None
+
+
 def verify_receipt_bundle(bundle: dict, pinned: Optional[Iterable[bytes]] = None) -> dict:
     """receipt -> leaf -> inclusion path -> signed root -> signature, and the key against `pinned`.
     Offline and self contained. It checks the one statement in the bundle, not the chain around it;
-    `trail` checks the chain."""
+    `trail` checks the chain. `status` is `signed` (a pinned key made the signature), `signed-unpinned`
+    (the key the statement carries made it; none was pinned) or `invalid`; a bundle that is not shaped
+    like one is invalid with `problem` saying how, never an exception."""
+    problem = bundle_problem(bundle)
+    if problem is not None:
+        return {"ok": False, "status": INVALID, "pinned": bool(pinned), "checks": {"well_formed": False},
+                "problem": problem, "index": None, "statement": None, "statement_sha256": None, "key": ""}
     statement = bundle["statement"]
     leaf = canon.sha256_hex(canon.canonical_compact(bundle["receipt"]))
     checks = {"leaf": leaf == bundle["leaf"],
-              "inclusion": merkle.verify_leaf(bundle["leaf"], bundle["path"], statement.get("root", "")),
+              "index": bundle["receipt"].get("idx") == bundle["index"],
+              "inclusion": merkle.verify_leaf(bundle["leaf"], [tuple(step) for step in bundle["path"]],
+                                              statement.get("root", "")),
               "well_formed": _well_formed(statement, LOG_AUDIT)}
+    checks["covered"] = checks["well_formed"] and 0 <= bundle["index"] < statement["leaves"]
     checks["key_id"] = checks["well_formed"] and key_id_of(bytes.fromhex(statement["public_key"])) == statement["key_id"]
     checks["signature"] = checks["key_id"] and _verify_signature(statement)
     pinned_ids = {key_id_of(raw) for raw in pinned} if pinned else set()
     checks["pinned"] = (statement.get("key_id") in pinned_ids) if pinned_ids else None
     ok = all(value for name, value in checks.items() if name != "pinned") and checks["pinned"] is not False
-    return {"ok": ok, "pinned": bool(pinned_ids), "checks": checks, "index": bundle.get("index"),
+    return {"ok": ok, "status": (SIGNED if pinned_ids else SIGNED_UNPINNED) if ok else INVALID,
+            "pinned": bool(pinned_ids), "checks": checks, "index": bundle.get("index"),
             "statement": statement.get("seq"), "statement_sha256": statement_hash(statement),
             "key": fingerprint(statement.get("key_id", ""))}
 
