@@ -2,7 +2,10 @@
 // Copyright 2026 Crystal Warden Supply Chain Labs LLC
 //! Root statements, verified: a deployment's own Ed25519 signature over the Merkle root of what it
 //! recorded, chained, as `prismpath/ledgers/root_statement.py` defines them (format
-//! `prismpath-root-statement/1`, SPEC 4.5, PROTOCOL 2.10).
+//! `prismpath-root-statement/3`, canon/2 with an integer `time_us`, a root of the RFC 6962 tree; SPEC 4.5,
+//! PROTOCOL 2.10). `prismpath-root-statement/2`, the same document over the retired tree (no domain
+//! prefixes, the last node of an odd layer duplicated), is refused as `old_merkle_scheme`; the earlier
+//! `prismpath-root-statement/1` (canon/1) is retired and is a `bad_format` finding.
 //!
 //! This is the verify side only. Nothing here signs, generates or loads a private key: a Rust
 //! consumer can check a log, a chain of statements or one receipt that the Python engine produced,
@@ -18,28 +21,31 @@
 //! the reference's OpenSSL backed check would accept; no honest key or signature is affected.
 
 use crate::merkle::{merkle_root, path_from_json, verify_leaf};
-use crate::pyval::{from_hex, head, py_int, universal_newlines};
+use crate::pyval::{from_hex, head, py_int};
+use prismpath_rs::durable;
 use crate::{canonical_bytes, sha256_hex, verify_ed25519};
 use serde_json::{json, Map, Value};
 
-pub const STATEMENT_FORMAT: &str = "prismpath-root-statement/1";
+pub const STATEMENT_FORMAT: &str = "prismpath-root-statement/3";
+/// Statements whose root is of the retired Merkle tree: refused by name, never checked under the new one.
+pub const OLD_SCHEME_FORMATS: [&str; 1] = ["prismpath-root-statement/2"];
 /// Prefixed to the canonical bytes before signing, so a root statement signature can never be
 /// presented as a pack or flow manifest signature or the reverse.
-pub const SIGNING_DOMAIN: &[u8] = b"prismpath-root-statement/1\x00";
+pub const SIGNING_DOMAIN: &[u8] = b"prismpath-root-statement/3\x00";
 /// An audit log's root is the Merkle root of its first `leaves` events.
 pub const LOG_AUDIT: &str = "audit-log";
 /// An epoch chain's root is the chained root of its first `leaves` epochs.
 pub const LOG_EPOCH_CHAIN: &str = "epoch-chain";
 
-const BODY_FIELDS: [&str; 11] = [
-    "format", "log", "seq", "root", "leaves", "prev", "time", "trigger", "key_id", "public_key", "policy",
+const BODY_FIELDS: [&str; 12] = [
+    "format", "encoding", "log", "seq", "root", "leaves", "prev", "time_us", "trigger", "key_id", "public_key", "policy",
 ];
 
 /// Findings that make a chain invalid. `interrupted_statement` (a torn final line from a crash mid
 /// write) is reported and is not one of them.
-pub const FATAL_FINDINGS: [&str; 10] = [
+pub const FATAL_FINDINGS: [&str; 11] = [
     "bad_format", "key_id_mismatch", "bad_signature", "unpinned_key", "authority_key", "chain_broken",
-    "leaf_count_regressed", "log_truncated", "root_mismatch", "no_statements",
+    "leaf_count_regressed", "log_truncated", "root_mismatch", "no_statements", "old_merkle_scheme",
 ];
 
 pub const SIGNED: &str = "signed";
@@ -58,20 +64,30 @@ pub fn fingerprint(key_id: &str) -> String {
 }
 
 /// The bytes the signature covers: the domain prefix, then every field but `sig`, canonical.
-/// `None` when a field is missing (a statement that is not well formed has no signed bytes).
+/// `None` when a field is missing, or a value has no canonical form (a statement that is not well formed has
+/// no signed bytes).
 pub fn signed_bytes(statement: &Value) -> Option<Vec<u8>> {
     let mut body = Map::new();
     for field in BODY_FIELDS {
         body.insert(field.to_string(), statement.get(field)?.clone());
     }
     let mut bytes = SIGNING_DOMAIN.to_vec();
-    bytes.extend(canonical_bytes(&Value::Object(body)));
+    bytes.extend(durable::canon2_bytes(&Value::Object(body)).ok()?);
     Some(bytes)
 }
 
-/// The statement's content address, signature included: what the next statement names as `prev`.
-pub fn statement_hash(statement: &Value) -> String {
-    sha256_hex(&canonical_bytes(statement))
+/// The statement's content address, signature included: what the next statement names as `prev`. `None`
+/// for a statement that does not name canon/2 or has no canon/2 form; `prismpath.canon.CanonicalError` is
+/// the same refusal in Python.
+pub fn statement_hash(statement: &Value) -> Option<String> {
+    canonical_bytes(statement).ok().map(|bytes| sha256_hex(&bytes))
+}
+
+/// `statement_hash` for a link that may be damaged: the hash of what is there, or `unreadable` when it has no
+/// canon/2 form, so the next statement's `prev` is compared with something that is not the empty first link.
+/// `prismpath.ledgers.root_statement._link_hash`.
+fn link_hash(statement: &Value) -> String {
+    statement_hash(statement).unwrap_or_else(|| "unreadable".to_string())
 }
 
 fn is_empty_object(value: &Value) -> bool {
@@ -94,18 +110,18 @@ pub fn check_separation(instance_key_id: Option<&str>, authority_key_ids: &[Stri
 /// Every statement in a statements file's text, and the findings reading it produced. A final line
 /// that is not JSON is a write a crash cut short (`interrupted_statement`); a bad line anywhere else
 /// is `bad_format`, and stands in the chain as an empty statement, because a chain with an unreadable
-/// link proves nothing past it. The text is read as Python reads a file: `\r\n` and `\r` are `\n`.
+/// link proves nothing past it. The text is split at each line feed and nothing else: a statement is its
+/// canonical bytes, so a carriage return left in a line makes it unreadable, as in the reference.
 pub fn read_statements_text(text: &str) -> (Vec<Value>, Vec<Value>) {
-    let text = universal_newlines(text);
     let mut lines: Vec<&str> = text.split('\n').collect();
     if lines.last() == Some(&"") {
         lines.pop();
     }
     let (mut statements, mut findings) = (Vec::new(), Vec::new());
     for (index, line) in lines.iter().enumerate() {
-        match serde_json::from_str::<Value>(line) {
+        match durable::read_document(line) {
             Ok(record @ Value::Object(_)) => statements.push(record),
-            _ if index == lines.len() - 1 => findings.push(json!({"finding": "interrupted_statement", "line": index + 1})),
+            _ if index == lines.len() - 1 && serde_json::from_str::<Value>(line).is_err() => findings.push(json!({"finding": "interrupted_statement", "line": index + 1})),
             _ => {
                 findings.push(json!({"finding": "bad_format", "line": index + 1}));
                 statements.push(json!({}));
@@ -142,6 +158,12 @@ fn well_formed(statement: &Value, log: &str) -> bool {
         return false;
     }
     if BODY_FIELDS.iter().chain(["sig"].iter()).any(|key| statement.get(*key).is_none()) {
+        return false;
+    }
+    if statement.as_object().map_or(0, Map::len) != BODY_FIELDS.len() + 1
+        || statement["encoding"].as_str() != Some(durable::CANON2)
+        || !(statement["time_us"].is_i64() || statement["time_us"].is_u64())
+    {
         return false;
     }
     let is_int = |key: &str| py_int(&statement[key]).is_some();
@@ -233,10 +255,13 @@ pub fn verify_chain(
     let mut key_ids: Vec<String> = Vec::new();
     for (index, statement) in statements.iter().enumerate() {
         if is_empty_object(statement) || !well_formed(statement, options.log) {
-            if !is_empty_object(statement) {
+            let format = statement.get("format").and_then(Value::as_str);
+            if let Some(old) = format.filter(|format| OLD_SCHEME_FORMATS.contains(format)) {
+                findings.push(json!({"finding": "old_merkle_scheme", "statement": index, "format": old}));
+            } else if !is_empty_object(statement) {
                 findings.push(json!({"finding": "bad_format", "statement": index}));
             }
-            prev_hash = if is_empty_object(statement) { String::new() } else { statement_hash(statement) };
+            prev_hash = if is_empty_object(statement) { String::new() } else { link_hash(statement) };
             continue;
         }
         let seq = py_int(&statement["seq"]).expect("well formed");
@@ -270,7 +295,7 @@ pub fn verify_chain(
             let from = *mismatch_from.get_or_insert(prev_leaves.min(leaves));
             findings.push(json!({"finding": "root_mismatch", "statement": seq, "leaf_range": [from, leaves - 1]}));
         }
-        prev_hash = statement_hash(statement);
+        prev_hash = link_hash(statement);
         prev_leaves = leaves;
     }
     if !pinned_ids.is_empty() && statements.is_empty() {
@@ -298,7 +323,7 @@ pub fn verify_chain(
         unsigned_tail: if statements.is_empty() { total_leaves } else { (total_leaves as i128 - i128::from(signed_leaves)).max(0) as usize },
         keys: key_ids.iter().map(|key_id| fingerprint(key_id)).collect(),
         pinned: !pinned_ids.is_empty(),
-        last_statement_sha256: last.map(statement_hash),
+        last_statement_sha256: last.map(link_hash),
         findings,
     }
 }
@@ -319,17 +344,20 @@ pub struct AuditLogView {
 impl AuditLogView {
     pub fn from_text(text: &str) -> AuditLogView {
         let mut view = AuditLogView::default();
-        for (index, line) in universal_newlines(text).split('\n').enumerate() {
-            let line = line.trim();
-            if line.is_empty() {
+        for (index, line) in text.split('\n').enumerate() {
+            if line.trim().is_empty() {
                 continue;
             }
-            match serde_json::from_str::<Value>(line) {
-                Ok(event) => {
-                    view.leaves.push(sha256_hex(&canonical_bytes(&event)));
+            // Read as `canon.loads_document` reads, so a line holding NaN or a number beyond the double range is a line
+            // that is not JSON, and every event read here has a canonical form.
+            match durable::read_document(line).ok().and_then(|event| {
+                canonical_bytes(&event).ok().map(|bytes| (sha256_hex(&bytes), event))
+            }) {
+                Some((leaf, event)) => {
+                    view.leaves.push(leaf);
                     view.events.push(event);
                 }
-                Err(_) => view.skipped.push(index + 1),
+                None => view.skipped.push(index + 1),
             }
         }
         view
@@ -464,6 +492,11 @@ pub fn bundle_problem(bundle: &Value) -> Option<String> {
             return Some(NOT_HEX.to_string());
         }
     }
+    for name in ["receipt", "statement"] {
+        if durable::encoding_of(&object[name]).is_err() {
+            return Some(format!("the {name} does not name canon/2 (canon/1 is retired)"));
+        }
+    }
     None
 }
 
@@ -489,7 +522,14 @@ fn idx_equals(idx: Option<&Value>, index: i128) -> bool {
 /// pinned, one that is a list or object, which cannot be compared).
 pub fn verify_receipt_bundle(bundle: &Value, pinned: &[Vec<u8>]) -> Result<BundleVerdict, String> {
     let pinned_ids: Vec<String> = pinned.iter().map(|raw| key_id_of(raw)).collect();
-    if let Some(problem) = bundle_problem(bundle) {
+    let old_scheme = || {
+        let format = bundle["statement"].get("format").and_then(Value::as_str)?;
+        OLD_SCHEME_FORMATS.contains(&format).then(|| {
+            format!("the statement is {format}, whose root is of the retired Merkle tree; this verifier reads only \
+                     {STATEMENT_FORMAT} ({})", prismpath_rs::merkle::MERKLE_SCHEME)
+        })
+    };
+    if let Some(problem) = bundle_problem(bundle).or_else(old_scheme) {
         return Ok(BundleVerdict {
             ok: false,
             status: INVALID,
@@ -512,7 +552,7 @@ pub fn verify_receipt_bundle(bundle: &Value, pinned: &[Vec<u8>]) -> Result<Bundl
     let statement = &bundle["statement"];
     let index = &bundle["index"];
     let index_int = index.as_i64().map(i128::from).or_else(|| index.as_u64().map(i128::from)).expect("checked");
-    let leaf = sha256_hex(&canonical_bytes(&bundle["receipt"]));
+    let leaf = canonical_bytes(&bundle["receipt"]).map(|bytes| sha256_hex(&bytes)).unwrap_or_default();
     let leaf_hex = bundle["leaf"].as_str().expect("checked");
     let leaf_matches = leaf_hex == leaf;
     let index_matches = idx_equals(bundle["receipt"].get("idx"), index_int);
@@ -556,7 +596,7 @@ pub fn verify_receipt_bundle(bundle: &Value, pinned: &[Vec<u8>]) -> Result<Bundl
         pinned_check,
         index: index.clone(),
         statement: statement.get("seq").cloned().unwrap_or(Value::Null),
-        statement_sha256: Some(statement_hash(statement)),
+        statement_sha256: Some(link_hash(statement)),
         key,
         problem: None,
     })

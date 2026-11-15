@@ -1,2 +1,0 @@
-https://github.com/theopenlane/core
-https://www.theopenlane.io/

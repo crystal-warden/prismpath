@@ -1,2 +1,0 @@
-https://github.com/cedar-policy/cedar
-https://aws.amazon.com/verified-permissions/

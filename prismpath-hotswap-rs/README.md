@@ -1,7 +1,8 @@
 # prismpath-hotswap-rs
 
 The secure policy hot swap, natively: Ed25519 signed policy packs, envelope bounded image
-validation, and the atomic, audited PolicyHost.
+validation, and the atomic, audited PolicyHost. `DIVERGENCES.md` at the repository root lists the places
+where it answers differently from the Python host on purpose.
 
 **What it mirrors.** `prismpath/hotswap/policy_pack.py` (the Authorized and Envelope bounded gates) and
 `prismpath/hotswap/policy_host.py` (the Attested and Audited and atomic host), per
@@ -10,15 +11,21 @@ nothing in this crate touches the compiler or the image bytes, so the certified 
 what the FPGA and eBPF evidence rows cite.
 
 **What enforces agreement.** A cross language contract gated by `tests/test_hotswap_conformance.rs`
-against `prismpath/portable/conformance/hotswap.json`: signatures are Ed25519 over Python's exact
+against `tests/fixtures/hotswap.json`, a byte identical copy of `prismpath/portable/conformance/hotswap.json`: signatures are Ed25519 over Python's exact
 canonical JSON bytes, so a pack signed by either runtime verifies on the other, and every refusal
 uses the same stable reason strings the Python tests pin (`sig:missing`, `image:sha256-mismatch`,
 `version:not-monotonic`, and the rest). Run `cargo test` in this directory; CI runs the tests and
 clippy for this crate.
 
-**What is here.** `src/lib.rs` (pack build and verify), `src/host.rs` (the PolicyHost: verify,
-envelope, version floor, stage, atomic flip, one audit event per attempt), and the receipt verifiers
-described next.
+**What is here.** `src/lib.rs` (pack build and verify), `src/host.rs` (the PolicyHost and the audit
+log: verify, envelope, version floor, stage, then the commit in the reference's order, intent record,
+floor, audit event, the new image `active-<sha256>.ppt`, the record naming it, clean up; a rollback commits the same way;
+a fresh host restores the active policy and records an interrupted commit; every audit event is fsynced before it has a leaf and a
+write that fails is an `AuditWriteError`). The host trace corpus `tests/fixtures/host_trace.json`
+is generated from the Python host, `tests/test_host_trace.rs` replays it byte for byte,
+`tests/test_host_crash.rs` stops a swap and a rollback before each step, and `tests/test_host_cross_language.rs`
+has each runtime open the other's state directory.
+The receipt verifiers described next sit beside the host.
 
 ## Verifying receipts the Python engine produced
 
@@ -31,7 +38,7 @@ wrote and reports what Python would report, finding for finding. It has no signi
 | module | mirrors | checks |
 |---|---|---|
 | `root_statement` | `prismpath/ledgers/root_statement.py` | a statement's form, key id and Ed25519 signature over the domain prefixed canonical bytes; the `prev` chain; leaf counts; the root against the log's leaves; truncation; pinned keys; policy authority keys in the log; one receipt bundle offline |
-| `merkle` | `prismpath/ledgers/ledger_ots.py` | the Bitcoin style tree under the log: root, and leaf to root inclusion paths |
+| `merkle` | `prismpath/ledgers/ledger_ots.py` | the RFC 6962 tree under the log (`prismpath_rs::merkle`): root, and leaf to root inclusion paths |
 | `flow_authority` | `prismpath/hotswap/flow_authority.py` | a flow manifest against the flow (LF normalised hash), the trusted and revoked authority keys, and the version floor |
 
 ```rust
@@ -63,8 +70,9 @@ and your own `root_at`). The instance key and the authority key must stay apart:
 signs or runs anything, as Python's `run` does.
 
 **What enforces agreement.** `prismpath/portable/conformance/receipts.json` is a frozen vector set
-written by `prismpath/portable/gen_receipt_fixtures.py` from the Python reference (287 cases: the
-canonical JSON bytes, the tree, valid and tampered audit trails, receipt bundles with 0.1.3's checks (`status`, `index`, `covered`, and the `problem` for a malformed bundle), flow manifests, the
+written by `prismpath/portable/gen_receipt_fixtures.py` from the Python reference (245 canon/2 cases, among them
+the refusals of what canon/1 wrote, which is retired and has no twin: the
+tree, valid and tampered audit trails, receipt bundles with 0.1.3's checks (`status`, `index`, `covered`, and the `problem` for a malformed bundle), flow manifests, the
 version floor, the key separation). It is reproducible byte for byte, `prismpath/tests/test_receipt_vectors.py`
 refuses drift and replays it through Python, and `tests/test_receipt_verify.rs` replays it through
 this crate and requires every verdict to match. `tests/test_receipt_edges.rs` pins the places this
@@ -87,15 +95,18 @@ Rust function returns an `invalid` result with the same `problem` text (`bundle_
 `Err`. `Err` is left for the cases where the reference still raises, a statement whose `key_id` is not
 text, or is a list or object while a key is pinned.
 
-**Limits of the number reading.** JSON integers beyond the 64 bit range and the literals `NaN` and
-`Infinity` are not read as Python reads them (an event holding one is a skipped log line, and a
-statement holding one is unreadable, both reported). Floats are written as Python's `repr` writes
-them (`prismpath_rs::durable::py_float_repr`), and the crate reads them with serde_json's
-`float_roundtrip`, so a receipt's `ts` hashes to the same leaf on both sides.
+**The number reading.** Documents are read as `prismpath.canon.loads_document` reads them: the literals
+`NaN` and `Infinity` and a number beyond the double range are refused (an event holding one is a skipped log
+line, a statement holding one is unreadable, and a manifest holding one is `manifest:bad-format`, all
+reported), and a document that names canon/2 is read by the strict canon/2 reader as well, which refuses any
+float, a duplicate key and an integer beyond plus or minus 2^53 minus 1. A canon/2 document is hashed over
+its canon/2 bytes (`prismpath_rs::durable::document_bytes`). A document without the tag is canon/1, which is
+retired: it is not read, hashed or verified (an untagged log line is skipped and the log no longer verifies,
+an untagged statement is `bad_format`, an untagged manifest is `manifest:bad-format`).
 
 **What it does not do.** It does not sign, create or load private keys for statements or manifests,
 write an audit log or a statements file, check an OpenTimestamps or RFC 3161 anchor, or decide when
-a root was signed (the statement's `time` is the signer's clock). The writers in other ports
+a root was signed (the statement's `time_us` is the signer's clock). The writers in other ports
 (telemetry epochs, eBPF receipt sealing, the mesh firmware, the Rust, Go and JavaScript kernels) do
 not yet produce root statements; see the changelog.
 

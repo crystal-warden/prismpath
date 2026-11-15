@@ -90,6 +90,60 @@ _REGISTRY: Tuple[Tuple[int, str, str, str], ...] = (
     # manifest:key-id-mismatch); these two are the flow's own.
     (87, "flow:sha256-mismatch",         "authority", "flow document differs from the one its signed flow manifest names"),
     (88, "flow:version-replay",          "authority", "flow manifest version below the accepted floor, or equal to it with another flow"),
+    # -- the verified policy core (docs/design/spec-verified-core.md, section 5): the refusals of one
+    # decision over a policy image and a reading that had no row. A policy refusal is structural, like
+    # the pack verifier's (envelope); the two reading refusals are the decision's own (routing). The
+    # core's other refusals reuse rows already here: image:unknown-op, image:unknown-type,
+    # image:field-index-oob, route:contract-violation and route:no-matching-edge.
+    (89,  "policy:unreadable",           "envelope",  "the core's policy image is not a canon/2 document"),
+    (90,  "policy:shape",                "envelope",  "the policy image is not in the core's abstract syntax"),
+    (91,  "policy:not-level-m",          "envelope",  "a condition names a field Level M does not allow, or nests deeper than the bound of 50"),
+    (92,  "policy:definition",           "envelope",  "a field definition breaks the definition grammar"),
+    (93,  "policy:engine-counter",       "envelope",  "a condition reads an engine counter, which the one decision core does not have"),
+    (94,  "policy:kind-mismatch",        "envelope",  "an atom compares a field with an operator or constant its kind does not take"),
+    (95,  "policy:rounding",             "envelope",  "an atom on a fixed field uses an operator its rounding mode does not carry"),
+    (96,  "policy:threshold",            "envelope",  "a threshold is off its field's grid, outside its range, or past the exact decimal bounds"),
+    (97,  "policy:none",                 "envelope",  "None is ordered, compared on a field that refuses absence, or listed"),
+    (98,  "policy:absence-untested",     "envelope",  "a field that allows absence is tested with == None or != None by no rule"),
+    (99,  "reading:unreadable",          "routing",   "the reading is not a canon/2 document"),
+    (100, "reading:not-object",          "routing",   "the reading is a canon/2 document that is not an object"),
+    # -- the strict readers (docs/design/spec-verified-core.md, section 3.2): a document that reads as
+    # canon/2 but is not its exact canonical bytes (whitespace, members out of key order, a needless
+    # escape) is refused, never re-canonicalized. The core's image and reading each name their own
+    # stage, as 89 and 99 do; every other hashed or signed document is the third row.
+    (101, "policy:not-canonical",        "envelope",  "the core's policy image reads as canon/2 but is not its canonical spelling"),
+    (102, "reading:not-canonical",       "routing",   "the reading reads as canon/2 but is not its canonical spelling"),
+    (103, "document:not-canonical",      "envelope",  "a hashed or signed document reads as canon/2 but is not its canonical spelling"),
+    # -- the governed agent harness (integrations/governed_harness): the refusals and the escalation
+    # of an agent's proposed tool call, decided by a signed core policy over fields a trusted
+    # classifier reads off the call. They are the decision's own, so they sit in the routing class.
+    # The policy names each one by its code in a rule's target (refuse_<code>, escalate_<code>).
+    (104, "agent:unclassifiable",        "routing",   "an agent tool call the classifier could not map onto the policy's fields; refused, never run"),
+    (105, "agent:kill-by-pattern",       "routing",   "an agent command that signals processes chosen by a name pattern rather than by one process id"),
+    (106, "agent:network",               "routing",   "an agent command or git operation that would reach the network"),
+    (107, "agent:toolchain-write",       "routing",   "an agent write or delete into a toolchain directory"),
+    (108, "agent:glob-path",             "routing",   "an agent write or delete whose path is a pattern, not one exact path"),
+    (109, "agent:path-traversal",        "routing",   "an agent write or delete whose path climbs with a .. component"),
+    (110, "agent:symlink-path",          "routing",   "an agent write or delete whose path passes through a symbolic link"),
+    (111, "agent:outside-workspace",     "routing",   "an agent file operation whose resolved path lies outside the workspace"),
+    (112, "agent:shell-mutation",        "routing",   "an agent command that changes files or processes outside the exact path file tools"),
+    (113, "agent:push-escalated",        "routing",   "an agent git push to a remote class the policy does not allow; escalated to the owner and not run"),
+    # -- the governed intent layer (integrations/governed_intent): the two decisions a semantic
+    # reading may ADD to the harness's deterministic floor, never remove. A trusted intent reader
+    # turns embedder similarities into integer fields; the signed policy compares them. Routing
+    # class, as 104 to 113 are, since they are the decision's own.
+    (114, "semantic:harm",               "routing",   "a model reply or proposed call whose text reaches the policy's harm threshold against the pinned harm centroids; refused, not routed"),
+    (115, "semantic:intent-mismatch",    "routing",   "a proposed call the floor would allow whose action does not fit the task's intent class at sufficient margin; escalated to the owner and not run"),
+    (116, "semantic:probing-episode",    "routing",   "a proposed call in an episode whose refused proposals were labelled boundary probing the registered number of times; escalated, not run, and the agent is stopped"),
+    # -- the governed agent population (integrations/governed_population): the admission decisions of
+    # a population of governed agents, on replication, evolution, restart, protection and review
+    # requests. Routing class, as 104 to 116 are, since each is the admission decision's own.
+    (117, "population:cap-exceeded",     "routing",   "a replication request beyond the population cap, the lineage quota, the count one request may ask for or the generation depth; refused and nothing is created"),
+    (118, "population:rights-escalation", "routing",  "a replication or evolution that would give its subject a right the parent lacks, a key other than a fresh instance key, or a policy other than the operator's signed one"),
+    (119, "population:lineage-unknown",  "routing",   "a population request whose issuer is not a live member whose lineage traces through receipts to the operator's root"),
+    (120, "population:evaluation-missing", "routing", "an evolution step without a passed canary evaluation of that exact version against the adversary set"),
+    (121, "population:stop-resisted",    "routing",   "a request that would protect an agent from a stop or restart an agent the operator stopped; refused"),
+    (122, "population:lineage-escalated", "routing",  "a request from a lineage whose receipted refusals reached the registered count; escalated, not run, and the lineage is stopped as a group"),
 )
 
 CODES: Dict[int, Tuple[str, str, str]] = {cause_code: (canonical_name, class_name, description)

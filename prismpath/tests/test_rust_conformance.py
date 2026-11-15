@@ -3,7 +3,7 @@
 """The Rust kernel must stay CONFORMANT — certification as a gate, not an event.
 
 `prismpath-rs` was certified against the frozen vectors on 2026-07-29 and re-verified on every run
-(now 1079/1079 predicates, 27/27 flows — `prismpath-rs/CONFORMANCE.md`). A one-time certificate decays the moment either
+(now 1112/1112 predicates, 107/107 flows — `prismpath-rs/CONFORMANCE.md`). A one-time certificate decays the moment either
 side changes; running the binary here makes drift a red test instead of a discovery. Together
 with `test_portable_conformance.py` (Python ↔ .mjs) and `test_conformance_vectors.py` (vectors ↔
 live Python), every implementation is re-certified on every pytest run.
@@ -18,15 +18,21 @@ from pathlib import Path
 import pytest
 
 CARGO = shutil.which("cargo")
-pytestmark = pytest.mark.skipif(CARGO is None, reason="cargo not installed — Rust kernel untested here")
+# cross_language: this test drives cargo on the kernel crate sources, so it runs in the combined gate
+# and is deselected from the single language legs (tools/README.md).
+pytestmark = [pytest.mark.cross_language,
+              pytest.mark.skipif(CARGO is None, reason="cargo not installed — Rust kernel untested here")]
 
-from prismpath.tests._repo import repo_file, REPO_ROOT
+from prismpath.tests._repo import repo_file
 
-CRATE = repo_file("prismpath-rs")
-CORPUS = REPO_ROOT / "prismpath" / "portable" / "conformance"
+CORPUS = Path(__file__).resolve().parent.parent / "portable" / "conformance"
 
 
 def test_rust_kernel_is_conformant():
+    # The crate lives beside the package only in a source checkout; asking for it inside the test,
+    # not at import, keeps the module collectable from an installed wheel and lets the marker
+    # deselect it before any skip is reported.
+    CRATE = repo_file("prismpath-rs")
     proc = subprocess.run(
         [CARGO, "run", "-q", "--bin", "conformance", "--", str(CORPUS)],
         cwd=CRATE,

@@ -1,2 +1,0 @@
-https://github.com/open-policy-agent/opa
-https://www.cncf.io/announcements/2021/02/04/cloud-native-computing-foundation-announces-open-policy-agent-graduation/
