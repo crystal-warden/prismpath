@@ -8,6 +8,70 @@ spec stable.
 
 ## [Unreleased]
 
+### Added: three starter policies for the governed agent (2026-11-16)
+
+- **`prismpath agent init --policy strict|default|review`** records the chosen starter, attested by the user's own
+  authority key as `agent_default` always was. `strict` is `agent_rules` (a call it cannot read and a shell command
+  that changes files are refused), `default` is `agent_default` with its bytes unchanged, and `review` is the new
+  `agent_review`: reads run, every change inside the project asks, the hazards are refused as in the others. With no
+  `--policy` a fresh setup records `default` and a second run keeps the starter already recorded. `status` names the
+  starter in use (`custom` for an image that is none of them), and the attestation's `case` names its image.
+- **`prismpath agent doctor`** takes any shipped starter as current and names it in its policy check; an older
+  shipped image of a starter warns with `init --policy <that starter>` as its fix, and an attested image that is none
+  of them warns as `custom`, the name `status` gives it.
+- Each starter is a readable `*.rules.md` compiled to the shipped `*.core.json` byte for byte. They ship unsigned in
+  the wheel: the signed `ppt-pack/1` format carries a `.ppt` table image, not a `prismpath.core/1` image, and no
+  shipped pack is signed by a repository key, so `init` signs the chosen image as it did before.
+- New cause 127 `agent:change-asked` (appended, routing), the review starter's escalation of a write, a delete, a
+  file-changing command or a local git change inside the workspace, with its crosswalk entry.
+- `prismpath/tests/test_agent_starters.py` tables each starter's answer to every Claude Code equivalent of the 51
+  case adversary set and checks over every reading the classifier can give that no starter allows a hazard.
+
+### Added: the cause crosswalk and the regulatory mapping (2026-11-16)
+
+- **`docs/standards/cause-crosswalk.json`** maps every registered cause to OWASP Top 10 for Agentic Applications 2026, MITRE ATLAS 2026.10 and CWE 5.0, each with a one line rationale or a none with its reason. Internal routing, state and integrity causes say so and are not forced onto a taxonomy. The referee `prismpath/tests/test_cause_crosswalk.py` checks every id against a pinned list in `docs/standards/taxonomies/`, so a cause appended to the registry fails it until it is mapped.
+- **`docs/standards/crosswalks/` and `regulatory-mapping.md`** map the evidence PrismPath produces to EU AI Act Articles 12, 14, 15, 19 and 26 with the dates the Digital Omnibus set, to the NIST AI RMF (reusing the AI governance crosswalk), to NIST AI 600-1 and to SP 800-53 Rev 5 AU and SI. Each edge says what the evidence does not satisfy on its own.
+- **`docs/design/spec-cause-codes.md`** gains section 4.1, the registration rule. The export now carries `docs/standards/`.
+
+### Added: `prismpath agent` puts a Claude Code session under the core (2026-11-16)
+
+- **`prismpath agent init`** makes the authority and instance keys in the user's configuration directory
+  (`prismpath/agent` under XDG_CONFIG_HOME or ~/.config, ~/Library/Application Support, %APPDATA%; files 0600,
+  directory 0700, an existing key never replaced), records `agent_default` with its image attestation signed by the
+  authority key, and writes a `PreToolUse` and a `SessionEnd` hook into the project's `.claude/settings.json`. The
+  change is printed as a diff and written only with `--yes` or a y at the prompt; other settings are kept, and a
+  second run changes nothing.
+- **`prismpath agent hook`** is what Claude Code runs: it classifies the call, decides it, appends the receipt to the
+  session's run and answers allow, deny or ask, the receipt's number in the reason. `SessionEnd` seals the run. It
+  fails closed: input that does not read, a missing or broken key, a policy whose attestation does not verify or any
+  error of its own is a deny with the new cause 126 `agent:hook-error` (appended), never an allow. It answers in
+  65 to 85 ms (median) including interpreter start on the aarch64 GB10 host, under the 150 ms budget, and its
+  import path loads no numpy.
+- **`prismpath agent verify`** seals the open runs and verifies every run with both keys pinned, every receipt
+  replayed through the reference kernel; `--tamper-demo` flips one byte of a copy and shows it refused.
+  **`prismpath agent status`** names the keys, the policy hash, the project's hook entries and every run with its
+  receipt count, open or sealed. Each command takes `--json`.
+- **An append no longer re-reads the run.** `RunStore` keeps a validated-prefix record (`journal.prefix`) and
+  validates only the journal bytes after it, so an append to a 5000 receipt run costs about 0.5 ms instead of
+  about 700 ms; a record that does not match the journal validates the whole journal, and seal and verify always do.
+
+### Added: the Claude Code adapter and the default agent policy (2026-11-16)
+
+- **`prismpath.agent.claude_code`** reads a Claude Code `PreToolUse` hook input into the classifier's call (Read as
+  `read_file`, Write, Edit, MultiEdit and NotebookEdit as `write_file`, Glob, Grep and LS as `list_dir`, Bash as
+  `run_command` split by `shlex`, everything else unknown) and writes the core's decision as the hook's answer
+  (`allow`, `deny` with the registered cause, `ask`). A shell operator, an unsplittable string, a `~` or brace
+  word, or a working directory outside the project makes a Bash call unknown.
+- **`agent_default`** is `agent_rules` with one difference: a reading whose tool or command the classifier cannot
+  read asks the person (new cause 124 `agent:unreadable-asked`, appended) where the owner's rules refuse it.
+  Unknown paths and unknown git operations still refuse (104), and a call that also breaks another rule still
+  refuses by that rule.
+- **A file-changing shell command asks.** Under `agent_default`, a command that changes files (rm, mv, mkdir, cp and the
+  like) whose paths are all inside the project asks the person (new cause 125 `agent:shell-mutation-asked`, appended)
+  instead of refusing with 112. The refusals for a toolchain path, a glob, a `..` component, a symbolic link, a path
+  outside the project, a kill by pattern and the network apply to such a command first, and a mutating git
+  operation still refuses with 112.
+
 ### Added: Mission Control is one console with three interfaces, documented from its own schema (2026-11-16)
 
 Mission Control grew from one file of proving and observing routes into the console the guides now describe.

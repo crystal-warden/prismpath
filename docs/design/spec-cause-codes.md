@@ -59,8 +59,9 @@ escalation after repeated boundary probing at 116. The governed agent population
 (`integrations/governed_population`, the refusals and the one escalation of its admission policy on
 replication, evolution, restart, protection and review requests) followed at 117 to 122, in `routing` for
 the same reason, and its refusal of a member's replication or evolution whose target is not its own at
-123. So the occupied ranges today are `authority` 1 to 10 and 87 to 88, `envelope` 16 to 19, 69 to 86, 89
-to 98, 101 and 103, `routing` 32 to 37, 99 to 100, 102 and 104 to 123, `wire` 48 to 56, and `state` 64 to
+123. The Claude Code adapter's default policy (`prismpath/agent/policy/agent_default`), which asks the person
+about a call it cannot read where the owner's rules refuse it, added the escalation at 124, and its question about a file-changing shell command inside the project (rm, mv, mkdir, cp) the escalation at 125. The governed agent hook (`prismpath agent hook`), which fails closed, added its refusal of a call it could not decide at 126, and the review starter policy (`prismpath/agent/policy/agent_review`), which asks the person about every change inside the project, its escalation at 127. So the occupied ranges today are `authority` 1 to 10 and 87 to 88, `envelope` 16 to 19, 69 to 86, 89
+to 98, 101 and 103, `routing` 32 to 37, 99 to 100, 102 and 104 to 127, `wire` 48 to 56, and `state` 64 to
 68.
 `state` stops at 68; it never reached 79, and 69 upward is envelope, not state. Read a code's class
 off the `class` column in `prismpath/kernel/causes.py` and never infer it from the number: the next
@@ -74,6 +75,27 @@ classes never change once shipped. The referee pins a hash over every `(code, na
 triple; descriptions may be edited for clarity, nothing else may move without the hash changing in
 the same commit that appends rows. A future registry that must break these rules is a new
 registry, versioned as such.
+
+## 4.1 Registration
+
+The rule the registry already follows, written down. A cause has a stable number. Numbers are only ever
+appended, after the highest number present, in whatever band that falls, and a number is never renumbered
+or reused, including when its cause is retired. A cause's canonical name and its class are fixed once it is
+registered. Its description may be edited for clarity and nothing else may move without the pinned
+hash changing in the commit that appends the row. A registry that must break these rules is a new registry.
+
+A new cause is proposed with a change that does all of the following in one commit.
+
+1. Name the refusal site. The cause comes from a refusal, park or escalation the code actually emits, and its
+   canonical name is the string the code emits, or a new colon style name for a decision that had none.
+2. Append the row to `prismpath/kernel/causes.py` with the next number, its class and a one line description.
+3. Update the frozen hash and the occupied ranges in the referee, `prismpath/tests/test_causes.py`, and the
+   ranges in section 3 above.
+4. Add the cause to `docs/standards/cause-crosswalk.json`, mapped to OWASP Top 10 for Agentic Applications,
+   MITRE ATLAS and CWE ids with a one line rationale, or marked none with the reason. A cause that is an internal
+   routing, state or integrity condition says so and is not forced onto a taxonomy. The referee
+   `prismpath/tests/test_cause_crosswalk.py` fails until this is done.
+5. Name the emitter's own refusal string beside the cause where the site keeps one, as section 6.1 does.
 
 ## 5. Mapping to the attentional-depth trigger classes
 
