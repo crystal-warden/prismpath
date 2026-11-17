@@ -26,7 +26,8 @@ REQUIRED = [
     "tests/fixtures/alert_router.md",
     "tests/fixtures/broken/terminal_with_body.md",
     "mission_control/static/index.html",
-    "mission_control/static/app.js",
+    "mission_control/static/js/main.mjs",
+    "mission_control/static/js/markup.mjs",
     "mission_control/static/style.css",
     "mission_control/static/vendor/cytoscape.min.js",
     "mission_control/static/vendor/cytoscape.LICENSE",
@@ -36,6 +37,7 @@ REQUIRED = [
     "policies/p1_lockfile.json",
     "policies/statutory_floor.md",
     "nudges/APP_ARCHITECTURE.md",
+    "portable/transparency_dev_consistency.json",
     "plugins/pysprint/ARCH.md",
 ]
 

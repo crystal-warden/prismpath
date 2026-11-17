@@ -259,17 +259,21 @@ def python_chain(work: Path, report: dict) -> dict:
 
 def mission_control_chain(work: Path, report: dict) -> None:
     port = "9931"
-    env = dict(os.environ, MC_PROJ=str(work), MC_PORT=port, MC_SCAN=str(work / "status.json"), MC_AUDIT=str(work / "console_audit.log"), LLM_BASE="http://127.0.0.1:9/v1")
+    state_dir = work / "console-state"
+    env = dict(os.environ, MC_PROJ=str(work), MC_PORT=port, MC_SCAN=str(work / "status.json"), MC_AUDIT=str(work / "console_audit.log"), MC_STATE_DIR=str(state_dir), LLM_BASE="http://127.0.0.1:9/v1")
     server = subprocess.Popen([sys.executable, "-m", "prismpath.mission_control"], env=env, cwd=str(work), stdout=open(work / "console.log", "w"), stderr=subprocess.STDOUT)
+    session = {}
 
     def post(path, payload):
-        request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        # the console's session token, read from the owner only file it writes in its state directory
+        request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "X-PrismPath-Session": session.get("token", "")}, method="POST")
         with urllib.request.urlopen(request, timeout=20) as response:
             return json.loads(response.read())
     try:
         for _ in range(50):
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/status", timeout=5)
+                session["token"] = (state_dir / f"mission_control-{port}.session").read_text().strip()
+                urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/v1/status", headers={"X-PrismPath-Session": session["token"]}), timeout=5)
                 break
             except Exception:
                 time.sleep(0.2)
@@ -286,11 +290,13 @@ def mission_control_chain(work: Path, report: dict) -> None:
         require(decoded.get("next_node") == first["route"] or decoded.get("route") == first["route"], "console Facet decode routes as the library", str(decoded))
         verified = post("/api/v1/policy/pack-verify", {"ppt_path": "perimeter.ppt", "pub": ["keys/authority.pub"]})
         require(verified.get("ok") is True, "console pack verify", str(verified))
-        attested = post("/api/v1/policy/pack-attest", {"state_dir": "state", "envelope": "env/env1.envelope", "pub": ["keys/authority.pub"]})
-        require(attested.get("active") == report["image"]["sha256"], "console attest names the active image", str(attested))
+        swaps_before = (work / "state" / "swaps.log").read_bytes()
+        active = post("/api/v1/policy/pack-active", {"state_dir": "state"})
+        require(active.get("active") == report["image"]["sha256"] and active.get("image_ok") is True, "console names the active image", str(active))
+        require((work / "state" / "swaps.log").read_bytes() == swaps_before, "console pack-active appends nothing to the deployment's log", "")
         trail = post("/api/v1/attest/trail", {"source": "state/swaps.log"})
         require(isinstance(trail, dict) and json.dumps(trail).count("attestation") >= 1, "console trail reads the audit log", json.dumps(trail)[:300])
-        report["mission_control"] = {"validate": "ok", "portable": "ok", "facet": "ok", "pack_verify": "ok", "attest": "ok", "trail": "ok"}
+        report["mission_control"] = {"validate": "ok", "portable": "ok", "facet": "ok", "pack_verify": "ok", "pack_active": "ok", "trail": "ok"}
     finally:
         server.terminate()
         server.wait(timeout=10)

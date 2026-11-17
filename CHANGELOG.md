@@ -8,6 +8,116 @@ spec stable.
 
 ## [Unreleased]
 
+### Added: Mission Control is one console with three interfaces, documented from its own schema (2026-11-16)
+
+Mission Control grew from one file of proving and observing routes into the console the guides now describe.
+This entry names the whole of it, since the entries below and above each cover one change.
+
+- **Three interfaces on one page.** Authoring (the process owner) edits flows and fixtures, draws the graph,
+  runs validate, lint, test, contract and portable, proves Level M and reachability, scaffolds a flow from a
+  template and reports a flow's change status. Operating (the operator) follows and controls the sprint loop,
+  answers the human queue and delivers events, reads the policy a deployment runs, the lens, fan outs and
+  routing quality, and reads a collector's live feed with a cause monitor. Auditing (the assessor) lists the
+  trails under the evidence roots, decodes a receipt from the cause registry, checks it again in the page
+  under a key the assessor pins, and verifies anchors, evidence runs, change control, policy packs and kept
+  feed sessions. Every control the posture leaves out is shown as unavailable.
+- **The collector** (`prismpath-ebpf/collector`) is the only privileged reader of the enforcer. The console
+  reads its feed on `MC_COLLECTOR`, keeps the sessions under `MC_COLLECTOR_STORE`, and proves each seal extends
+  the last, with the kept sessions bounded by `MC_COLLECTOR_KEEP_BYTES` and `MC_COLLECTOR_KEEP_DAYS`.
+- **`docs/guides/mission-control-api.md`** has its route tables generated from `app.openapi()` by
+  `tools/gen_mission_control_guide.py`, with a test (`prismpath/tests/test_mission_control_guide.py`) that fails
+  when they differ from the app. The posture, session, roots and audit sections are written by hand and the
+  generator leaves them alone. Sixteen routes that had no docstring have one, since the tables read it.
+- The process owner's, operator's and assessor's guides each name their interface. The Dictionary's Mission
+  Control entry names the three interfaces and the two postures, and a `session` entry is added.
+  `docs/design/architecture.md` describes the package it is, not the single file it was.
+
+### Changed, breaking: the collector feed proves each seal extends the last, and the console's kept sessions are bounded (2026-11-16)
+
+After a `gap`, or a reconnect to the same session at a higher count, the console could not check the next
+seal and took the tree up from its peaks on the collector's word. And the kept feed sessions had no bound on
+their size or age.
+
+- **RFC 6962 consistency proofs** (section 2.1.2, verified as RFC 9162 section 2.1.4.2 says):
+  `root_statement.consistency_proof` and `verify_consistency` in Python, `merkle::consistency_proof`,
+  `verify_consistency` and the streaming `ProofWindow` in Rust, held to each other by the new corpus
+  `portable/conformance/merkle_consistency.json` (612 proofs, and the 98 consistency probes of
+  transparency-dev/merkle, vendored under Apache-2.0).
+- **The feed is `prismpath.collector/2`** (`prismpath-ebpf/collector/README.md`). Every seal after the first a
+  connection was sent carries `consistency`: the proof from the `count` of the last seal that connection was
+  sent, or `missing` with the reason (`window`, `ahead`). A client may resume a session from the count it last
+  verified, and its join seal is proved from there. The collector keeps `--proof-window` leaf hashes (default
+  65,536, 2 MiB) and one 2 KiB tree state per client. A `/1` subscription is refused, and the console reads
+  only `/2`.
+- **The console keeps two verdicts apart** (`mission_control/feed.py`): `records` (`checked`, or `unchecked`
+  after a hole) and `tree` (`proven`, or `unproven` where a seal was taken up with no proof that it extends the
+  tree before it, listed in `unproven` with why). The new status `unproven` sits between `holes` and `broken`;
+  a proof that fails is a `seal-consistency` finding. A `gap`'s hole is read from the indexes, since its count
+  is of records. The client resumes from its last verified seal on every reconnect.
+- **Retention** (`feed.retain`, `MC_COLLECTOR_KEEP_BYTES` default 1 GiB, `MC_COLLECTOR_KEEP_DAYS` default 30,
+  0 turns a bound off): whole oldest segments go first, never the one being written nor one another console
+  may be writing, nothing outside the store and nothing through a link, and each leaves
+  `feed-NNNNNN.removed.json` in its place with its size, sha256, lines, first and last seal and why it went.
+  The kept layout is `prismpath.console-feed/2`, and `/evidence/feed` reports the removed segments.
+
+### Added: an accumulator's peaks carry its tree on (2026-11-16)
+
+`prismpath_rs::merkle::Accumulator` gains `peaks()`, the peak hashes tallest first (the order
+`root_statement.MerkleAccumulator` keeps them in), and `from_peaks(count, peaks)`, which rebuilds the
+accumulator from them and refuses a list that is not one peak per set bit of the count. A reader handed the
+count and the peaks partway through a stream checks every later root from the leaves after that point
+alone. A test holds `from_peaks(peaks())` followed by the remaining leaves to the batch tree for every cut
+of 300 leaves.
+
+### Changed, breaking: Mission Control writes its audit event before it acts, names the session that asked, and reads a deployment without writing to it (2026-11-16)
+
+A file save and a sprint start were recorded after the effect, so an audit log that could not be written left
+an unrecorded edit or process; a `file.edit` event named only a path and a byte count; every event's actor was
+the literal `operator`; `/quality/lock` wrote a lockfile unaudited and outside the write lock; `/policy/pack-attest`,
+documented as read only, created the state directory and appended an attestation to the deployment's own log;
+and `/attest/trail` with no source was a 500.
+
+- **Intent, then effect, then result** (`prismpath/mission_control/audit.py`): `record_intent` is written before
+  the effect and `record_result` after it, under the action's name with `.result` appended, naming the intent by
+  index and Merkle leaf. When the intent cannot be written the effect does not happen and the answer is a 503.
+  Covers the sprint controls, `/queue/decide`, `POST /file` and `/quality/lock`; `/sprint/select` and
+  `/sprint/auto` are now audited too.
+- **Actor** is `console/<interface>/<session fingerprint>` (`authoring` for the file write, `operating` for the
+  rest); a queue decision's `decided_by` is that actor. `audit.ACTOR` is gone.
+- **`file.edit`** carries `kind` (flow or fixture), the flow's `name`, `sha256_before` and `sha256_after`; the
+  result carries the sha256 read back from disk. The file is written as the exact UTF-8 bytes hashed.
+- **`/quality/lock`** records the flow's and the centroid file's sha256 and the written lock's, under the file lock.
+  Checking is the read route `/quality/lock-check`, mounted in the read only posture; a missing lock is a failed
+  check, not a 500.
+- **`/policy/pack-attest` is removed** in favour of the read route `/policy/pack-active {state_dir, last}`, which
+  reads `active_policy.json`, checks the image digest and returns the `swaps.log` history and statement status
+  without constructing a `PolicyHost`. Attesting is `prismpath swap attest`.
+- `/attest/trail` with no source walks the console's own log. The lens labels a call's receiver from the record's
+  `model` or `worker` field, else its `kind`, and names no model of its own. Dead registration comments removed.
+
+### Changed, breaking: Mission Control serves only its own page, over its own host, with a session token (2026-11-16)
+
+A form posted from any web page reached `/api/v1/sprint/stop` and dropped the STOP marker, a foreign
+`Host` was served, a project could be selected from anywhere on disk, and the defaults followed `/tmp`.
+
+- **Session guard** (`prismpath/mission_control/session.py`), the outermost layer: a request is refused with
+  a 403 unless its `Host` is the bound port under `127.0.0.1`, `localhost` or `[::1]`, its `Origin` (when
+  present) is that same origin, and, under `/api/v1`, it carries `X-PrismPath-Session` equal to the launch's
+  random token. The page gets the token in a meta tag written as it is served; a script reads it from
+  `mission_control-<port>.session` (mode 0600) in the state directory. Every response carries a content
+  security policy, `nosniff`, `no-referrer` and `X-Frame-Options: DENY`; the page and the API are `no-store`.
+  `/docs` is no longer served (it loaded a CDN script); the schema stays at `/openapi.json`.
+- **Postures**: `--read-only` or `MC_READ_ONLY=1` mounts no route marked `x-prismpath-capability: write`
+  and refuses each with a 403. The full posture stays the default.
+- **Project roots**: `/sprint/select` and `/sprint/start` accept only a discovered sprint, the launch project
+  or a directory under `MC_EVIDENCE`, and never one holding the console's own audit log. `MC_PROJ` defaults to
+  `project` under the state directory (`MC_STATE_DIR`) and `MC_SCAN` to nothing, in place of `/tmp/demo` and
+  `/tmp/*/status.json`.
+- **One project per request**: the followed project is guarded by a lock, each request captures it once, and
+  `/status` no longer moves it; following the live sprint is the event stream's job.
+- `MC_HOST` other than loopback is refused unless `MC_ALLOW_NON_LOOPBACK=1`. The page reads the event stream
+  with `fetch`, since `EventSource` cannot send the header.
+
 ### Added: the streaming Merkle root in every substrate, proved equal to the tree (2026-11-15)
 
 - **One streaming form per language**, beside the batch tree and giving the same root: `root_statement.MerkleAccumulator`

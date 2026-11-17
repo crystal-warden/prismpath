@@ -18,6 +18,12 @@
 # checkout at the commit PROVENANCE.md records, and the provenance gate then also proves every file is
 # what that checkout's exporter writes. Without it the gate proves only that no file changed since the
 # export.
+#
+# Without --out the run works in a temporary directory of its own (several GB: the export, virtual
+# environments, cargo targets) and removes it on every exit, a pass, a failure or an interruption, after
+# printing the report. PRISMPATH_ACCEPTANCE_KEEP=1 keeps it for debugging. A directory named by --out is
+# the caller's and is kept. TMPDIR points inside the working directory for the run, so whatever a gate
+# creates as a temporary file (pytest's base temp, mktemp, tempfile) goes with it.
 set -u
 
 LEG="full"
@@ -41,8 +47,32 @@ esac
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 COMMIT="$(git -C "$REPO" rev-parse HEAD)"
-OUT="${OUT:-$(mktemp -d -t prismpath-acceptance-XXXXXX)}"
+OWN_OUT=0
+if [ -z "$OUT" ]; then
+  OUT="$(mktemp -d -t prismpath-acceptance-XXXXXX)" || { echo "cannot create a temporary directory" >&2; exit 2; }
+  OWN_OUT=1
+fi
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM HUP
+  if [ "$OWN_OUT" = "1" ]; then
+    if [ "${PRISMPATH_ACCEPTANCE_KEEP:-0}" = "1" ]; then
+      echo "kept $OUT (PRISMPATH_ACCEPTANCE_KEEP=1); remove it when done" >&2
+    else
+      chmod -R u+w "$OUT" 2>/dev/null   # cargo and pip leave read only files behind
+      rm -rf "$OUT"
+      [ "$status" = "0" ] || echo "removed $OUT; run again with PRISMPATH_ACCEPTANCE_KEEP=1 to keep the logs" >&2
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 mkdir -p "$OUT"
+mkdir -p "$OUT/tmp"
+export TMPDIR="$OUT/tmp"
 REPORT="$OUT/report.md"
 EXPORT="$OUT/tree"
 unset PYTHONPATH
@@ -151,6 +181,8 @@ text = open(sys.argv[1]).read()
 allowed = {
     "test_gates_behavioral_findings.py": "could not import 'playwright'",
     "test_gates_infra_error.py": "could not import 'playwright'",
+    "test_mission_control_page_verify.py": "could not import 'playwright",   # the headless browser check of the page's verdict
+    "test_mission_control_feed_browser.py": "could not import 'playwright",   # the headless browser check of the collector feed's screens
     "test_llm_local.py": "could not import 'torch'",
     "test_lockfile.py": "needs the real bge embedder",
     "test_router.py": "could not import 'sentence_transformers'",
@@ -183,7 +215,7 @@ PY
       echo 'pack verified'"
     # -------------------------------------------------------------- Mission Control from the installed wheel
     run_gate "mission control: installed launch, defaults, assets, validate, facet, pack verify, sprint subprocess" "$OUT/mission-control.log" "$OUT/venv-full/bin/python" - "$OUT" <<'PY'
-import json, os, subprocess, sys, time, urllib.request, tempfile
+import json, os, subprocess, sys, time, urllib.error, urllib.request, tempfile
 from pathlib import Path
 out = Path(sys.argv[1]); project = out / "mc-project"
 flow = project / "flows" / "triage.md"
@@ -194,20 +226,41 @@ env = dict(os.environ, MC_PROJ=str(project), MC_PORT="9917", MC_SCAN=str(project
 env.pop("MC_AUDIT", None)
 state_home = Path(os.environ["XDG_STATE_HOME"]); env["XDG_STATE_HOME"] = str(state_home)
 server = subprocess.Popen([sys.executable, "-m", "prismpath.mission_control"], env=env, cwd=str(out), stdout=open(out / "mc-server.log", "w"), stderr=subprocess.STDOUT)
-def get(path):
-    with urllib.request.urlopen(f"http://127.0.0.1:9917{path}", timeout=5) as response:
+# The console writes its session token, owner only, into its state directory; a script on the same
+# machine reads it there and sends it in the session header, as the page does from its meta tag.
+def token_of(port):
+    return (state_home / "prismpath" / f"mission_control-{port}.session").read_text().strip()
+TOKEN = {}
+def get(path, headers=None):
+    request = urllib.request.Request(f"http://127.0.0.1:9917{path}", headers={"X-PrismPath-Session": TOKEN.get("t", ""), **(headers or {})})
+    with urllib.request.urlopen(request, timeout=5) as response:
         return response.status, response.read()
 def post(path, payload):
-    request = urllib.request.Request(f"http://127.0.0.1:9917{path}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST")
+    request = urllib.request.Request(f"http://127.0.0.1:9917{path}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "X-PrismPath-Session": TOKEN.get("t", "")}, method="POST")
     with urllib.request.urlopen(request, timeout=20) as response:
         return response.status, json.loads(response.read())
+def refused(path, headers):
+    try:
+        urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:9917{path}", headers=headers), timeout=5)
+    except urllib.error.HTTPError as error:
+        return error.code
+    return 200
 try:
     for _ in range(50):
-        try: get("/api/v1/status"); break
+        try: TOKEN["t"] = token_of(9917); get("/api/v1/status"); break
         except Exception: time.sleep(0.2)
     else: raise SystemExit("mission control did not start; see mc-server.log")
-    for asset in ("/", "/style.css", "/app.js", "/vendor/cytoscape.min.js"):
+    token_file = state_home / "prismpath" / "mission_control-9917.session"
+    assert os.name == "nt" or token_file.stat().st_mode & 0o777 == 0o600, oct(token_file.stat().st_mode)
+    assert TOKEN["t"] not in (out / "mc-server.log").read_text(), "the launch printed the session token"
+    assert refused("/api/v1/status", {}) == 403, "an API request without the session header was served"
+    assert refused("/api/v1/status", {"X-PrismPath-Session": TOKEN["t"], "Host": "evil.example:9917"}) == 403, "a foreign Host was served"
+    assert refused("/api/v1/status", {"X-PrismPath-Session": TOKEN["t"], "Origin": "http://evil.example"}) == 403, "a foreign Origin was served"
+    print("session guard: token file owner only, missing token, foreign Host and foreign Origin refused")
+    for asset in ("/", "/style.css", "/js/main.mjs", "/js/markup.mjs", "/js/verify.mjs", "/portable/canon2.mjs", "/portable/merkle.mjs", "/vendor/cytoscape.min.js"):
         status, body = get(asset); assert status == 200 and body, asset
+    status, page = get("/")
+    assert f'<meta name="prismpath-session" content="{TOKEN["t"]}">'.encode() in page, "the page carries no session token"
     print("static assets served")
     status, validation = post("/api/v1/inspect/validate", {"flow_md": "flows/triage.md"}); print("validate:", status, str(validation)[:120])
     assert status == 200 and validation.get("ok") is True and validation.get("errors") == 0, validation
@@ -239,9 +292,10 @@ server = subprocess.Popen([sys.executable, "-m", "prismpath.mission_control"], e
 try:
     for _ in range(50):
         try:
-            with urllib.request.urlopen("http://127.0.0.1:9918/api/v1/status", timeout=5): break
+            second = token_of(9918)
+            with urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:9918/api/v1/status", headers={"X-PrismPath-Session": second}), timeout=5): break
         except Exception: time.sleep(0.2)
-    request = urllib.request.Request("http://127.0.0.1:9918/api/v1/sprint/start", data=json.dumps({"proj": str(project), "agent": "served", "seconds": 1, "max_iters": 1}).encode(), headers={"Content-Type": "application/json"}, method="POST")
+    request = urllib.request.Request("http://127.0.0.1:9918/api/v1/sprint/start", data=json.dumps({"proj": str(project), "agent": "served", "seconds": 1, "max_iters": 1}).encode(), headers={"Content-Type": "application/json", "X-PrismPath-Session": second}, method="POST")
     with urllib.request.urlopen(request, timeout=20) as response:
         assert response.status == 200
     time.sleep(2)

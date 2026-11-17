@@ -3,8 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="prismpath-session" content="">
+  <meta name="prismpath-posture" content="">
   <title>PrismPath Mission Control</title>
-  <link rel="stylesheet" href="/style.css">
+  <!-- The id tells Cytoscape its container rule is already loaded (style.css carries it), so it does not
+       insert an inline <style>, which the content security policy refuses. -->
+  <link id="__________cytoscape_stylesheet" rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header class="topbar">
@@ -19,42 +23,40 @@
       <span class="pill" id="p-valid"></span>
       <span class="pill" id="p-buf" title="run buffering mode"></span>
       <span class="pill" id="p-audit"></span>
-      <a class="pill link" href="/docs" target="_blank" rel="noopener">API /docs</a>
+      <span class="pill" id="p-posture" title="the console's posture"></span>
+      <a class="pill link" href="/openapi.json" target="_blank" rel="noopener">API schema</a>
     </div>
   </header>
 
-  <div class="control">
-    <button id="c-start-toggle" class="btn">▸ Start sprint</button>
-    <form id="startform" class="startform hidden">
-      <input name="proj" placeholder="project dir (blank = followed)" size="26">
-      <input name="gate" placeholder="gate (browser)" size="10">
-      <input name="nudge_file" placeholder="nudge file (optional)" size="16">
-      <input name="model" placeholder="model" size="8">
-      <label><input type="checkbox" name="rag" checked> rag</label>
-      <label><input type="checkbox" name="lessons" checked> lessons</label>
-      <label><input type="checkbox" name="fresh"> fresh</label>
-      <label title="python -u / PYTHONUNBUFFERED — stream live vs batch">
-        <input type="checkbox" name="unbuffered" checked> unbuffered
-      </label>
-      <button type="submit" class="btn go">Launch</button>
-    </form>
-    <span class="spacer"></span>
-    <button class="btn" data-act="pause">Pause</button>
-    <button class="btn" data-act="resume">Resume</button>
-    <button class="btn danger" data-act="stop">Stop</button>
-    <span class="proj" id="c-proj"></span>
-  </div>
+  <nav class="interfaces" id="interfaces" role="tablist" aria-label="interface">
+    <button type="button" class="iface active" role="tab" data-interface="authoring">Authoring</button>
+    <button type="button" class="iface" role="tab" data-interface="operating">Operating</button>
+    <button type="button" class="iface" role="tab" data-interface="auditing">Auditing</button>
+  </nav>
 
-  <nav class="tabs" id="tabs">
-    <span class="tab active" data-v="graph">Graph</span>
-    <span class="tab" data-v="files">Files</span>
-    <span class="tab" data-v="audit">Audit</span>
-    <span class="tab" data-v="queue">Queue</span>
-    <span class="tab" data-v="flows">Flows</span>
-    <span class="tab" data-v="inspect">Inspect</span>
-    <span class="tab" data-v="quality">Quality</span>
-    <span class="tab" data-v="proof">Proof</span>
-    <span class="tab" data-v="policy">Policy</span>
+  <nav class="tabs" id="screens" role="tablist" aria-label="screen">
+    <button type="button" class="tab active" role="tab" data-interface="authoring" data-screen="graph">Graph</button>
+    <button type="button" class="tab" role="tab" data-interface="authoring" data-screen="files">Files</button>
+    <button type="button" class="tab" role="tab" data-interface="authoring" data-screen="inspect">Inspect</button>
+    <button type="button" class="tab" role="tab" data-interface="authoring" data-screen="prove">Prove</button>
+    <button type="button" class="tab" role="tab" data-interface="authoring" data-screen="status">Change status</button>
+    <button type="button" class="tab" role="tab" data-interface="authoring" data-screen="new">New flow</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="operating" data-screen="queue">Queue</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="operating" data-screen="policy">Policy</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="operating" data-screen="live">Live feed</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="operating" data-screen="monitor">Cause monitor</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="operating" data-screen="lens">Lens</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="operating" data-screen="flows">Flows</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="operating" data-screen="quality">Quality</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="operating" data-screen="runs">Runs</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="auditing" data-screen="trails">Trails</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="auditing" data-screen="evidence">Evidence runs</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="auditing" data-screen="change">Change control</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="auditing" data-screen="anchors">Anchors</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="auditing" data-screen="causes">Causes</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="auditing" data-screen="keys">Keys</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="auditing" data-screen="audit">Audit</button>
+    <button type="button" class="tab hidden" role="tab" data-interface="auditing" data-screen="proof">Proof</button>
   </nav>
 
   <main>
@@ -102,7 +104,9 @@
       <div class="filelist" id="filelist"></div>
       <div class="editor">
         <div class="editor-bar"><span id="ed-path" class="muted">no file</span>
-          <button class="btn" id="ed-save" disabled>Save</button></div>
+          <button class="btn" id="ed-save" disabled>Save</button>
+          <span class="muted hidden" id="ed-note"></span>
+          <span class="grow"></span><span class="muted" id="ed-status" title="the open flow's change status"></span></div>
         <textarea id="ed-body" spellcheck="false" placeholder="select a file"></textarea>
       </div>
     </section>
@@ -118,14 +122,80 @@
 
     <!-- QUEUE (HITL) -->
     <section class="view" id="v-queue">
-      <div class="card"><h3>Suspended for a human decision</h3>
+      <div class="card"><h3>Suspended for a human decision, or waiting for an event</h3>
+        <div class="muted">A decision or an event is recorded into the run's checkpoint and applied by its next resume. Fan-out children are listed by their id under the queue.</div>
         <div id="q-items"></div></div>
+    </section>
+
+    <!-- CAUSE MONITOR (operating): counts by cause and action over an audit log, windowed by time -->
+    <section class="view" id="v-monitor">
+      <div class="card">
+        <h3>Cause monitor</h3>
+        <div class="muted">Counts by cause and by action over an audit log, bucketed by event time, or over the collector's live feed, bucketed by arrival time, so a cause that starts climbing is visible.</div>
+        <label>source</label><select id="cm-source"><option value="log">audit log</option><option value="live">live feed (collector)</option></select>
+        <label>audit log (under an evidence root; blank = the console's own)</label><input id="cm-path" placeholder="e.g. run/run.audit.jsonl">
+        <label>bucket seconds</label><input id="cm-bucket" value="3600" inputmode="numeric">
+        <label>since (optional, ISO 8601)</label><input id="cm-since" placeholder="2026-11-16T00:00:00Z">
+        <label>last events (optional)</label><input id="cm-last" inputmode="numeric">
+        <div class="toolrow"><button class="btn" id="cm-go">Count</button></div>
+        <div id="cm-out"></div>
+      </div>
+    </section>
+
+    <!-- LIVE FEED: the collector's decisions as they arrive -->
+    <section class="view" id="v-live">
+      <div class="card">
+        <h3>Live feed</h3>
+        <div class="muted">The enforcer's decisions as the collector reads them, the enforcer's own counters, and the console's check of every leaf and seal. The collector does not sign its seals.</div>
+        <div class="toolrow"><button type="button" class="btn" id="lv-refresh">Refresh</button></div>
+        <div id="lv-out"></div>
+      </div>
+    </section>
+
+    <!-- LENS: who said what to which worker -->
+    <section class="view" id="v-lens">
+      <div class="card"><h3>Lens</h3>
+        <div class="muted">The followed run's recorded calls, newest first, labelled from the records themselves.</div>
+        <div id="lens-events"></div></div>
     </section>
 
     <!-- FLOWS (fan-outs) -->
     <section class="view" id="v-flows">
       <div class="card"><h3>Fan-out composition</h3>
         <div id="f-tree"></div></div>
+    </section>
+
+    <!-- RUNS: the sprint loop controls (operating), below the queue and the policy host -->
+    <section class="view" id="v-runs">
+      <div class="card">
+        <h3>Discovered sprints</h3>
+        <div id="runs-sprints"></div>
+      </div>
+      <div class="card">
+        <h3>Sprint loop</h3>
+        <div class="muted">Followed project <span class="proj" id="c-proj"></span></div>
+        <div class="muted hidden" id="runs-unavailable">The console runs read-only: starting, pausing, resuming and stopping the sprint loop are unavailable in this posture.</div>
+        <div class="control" id="run-controls">
+          <button id="c-start-toggle" class="btn">▸ Start sprint</button>
+          <form id="startform" class="startform hidden">
+            <input name="proj" placeholder="project dir (blank = followed)" size="26">
+            <input name="gate" placeholder="gate (browser)" size="10">
+            <input name="nudge_file" placeholder="nudge file (optional)" size="16">
+            <input name="model" placeholder="model" size="8">
+            <label><input type="checkbox" name="rag" checked> rag</label>
+            <label><input type="checkbox" name="lessons" checked> lessons</label>
+            <label><input type="checkbox" name="fresh"> fresh</label>
+            <label title="python -u / PYTHONUNBUFFERED — stream live vs batch">
+              <input type="checkbox" name="unbuffered" checked> unbuffered
+            </label>
+            <button type="submit" class="btn go">Launch</button>
+          </form>
+          <span class="spacer"></span>
+          <button class="btn" data-act="pause">Pause</button>
+          <button class="btn" data-act="resume">Resume</button>
+          <button class="btn danger" data-act="stop">Stop</button>
+        </div>
+      </div>
     </section>
 
     <!-- INSPECT: author-time analyses on a flow -->
@@ -143,7 +213,58 @@
           <button class="btn" data-inspect="test">Test</button>
           <button class="btn" data-inspect="graph">Mermaid</button>
         </div>
-        <pre class="tool-out" id="ins-out">pick a check.</pre>
+        <div class="tool-out rendered" id="ins-out">pick a check.</div>
+      </div>
+    </section>
+
+    <!-- PROVE: Level M and bounded reachability over flow text, saved or not -->
+    <section class="view" id="v-prove">
+      <div class="card">
+        <h3>Prove a flow's text</h3>
+        <div class="muted">The proofs take the flow as text, so an edit can be proven before it is saved. The Graph screen proves the followed flow and paints the witness path on it.</div>
+        <div class="toolrow">
+          <button class="btn" id="pv-followed">Use the followed flow</button>
+          <button class="btn" id="pv-editor">Use the editor's text</button>
+        </div>
+        <label>flow text</label>
+        <textarea id="pv-text" class="prove-text" spellcheck="false" placeholder="paste or load a flow document"></textarea>
+        <label>reach (nodes, comma separated)</label><input id="pv-reach" placeholder="e.g. escalate">
+        <label>forbid (nodes asserted unreachable, comma separated)</label><input id="pv-forbid" placeholder="e.g. danger">
+        <label>assume (optional)</label><input id="pv-assume" placeholder="e.g. amount &lt;= 500">
+        <div class="toolrow">
+          <button class="btn prove" id="pv-levelm">Prove Level M</button>
+          <button class="btn prove" id="pv-reach-go">Prove reachability</button>
+        </div>
+        <div class="tool-out rendered" id="pv-out">pick a proof.</div>
+      </div>
+    </section>
+
+    <!-- CHANGE STATUS: the flow's hash, its signed manifest and what the deployment runs -->
+    <section class="view" id="v-status">
+      <div class="card">
+        <h3>Change status</h3>
+        <div class="muted">Where a flow stands on the signed path. The console reads; it never signs, packs, swaps or attests, and shows the commands that do.</div>
+        <label>flow path</label><input id="st-flow" list="dl-flows" placeholder="flow .md (blank = the followed flow)">
+        <label>authority public key files (comma separated, under the project or an evidence root)</label>
+        <input id="st-pins" list="dl-files" placeholder="keys/authority.pub">
+        <label>policy host state directory (optional, under the project or an evidence root)</label>
+        <input id="st-state" placeholder="state">
+        <div class="toolrow"><button class="btn" id="st-go">Read the status</button></div>
+        <div class="tool-out rendered" id="st-out">name a flow.</div>
+      </div>
+    </section>
+
+    <!-- NEW FLOW: scaffold from a bundled template, as prismpath init does -->
+    <section class="view" id="v-new">
+      <div class="card">
+        <h3>New flow from a template</h3>
+        <div class="muted">Writes the same files as <code>prismpath init</code>, into the followed project, recorded in the console's audit log.</div>
+        <label>template</label><select id="sc-template"></select>
+        <label>name</label><input id="sc-name" placeholder="letters, digits, _ and -">
+        <div id="sc-preview"></div>
+        <div class="toolrow"><button class="btn go" id="sc-go">Create</button>
+          <span class="muted hidden" id="sc-note"></span></div>
+        <div id="sc-out"></div>
       </div>
     </section>
 
@@ -185,18 +306,144 @@
       </div>
     </section>
 
-    <!-- POLICY: signed pack verify + attest + facet inspector (no signing) -->
+    <!-- AUDITING: trails under the evidence roots, one receipt, its raw bytes -->
+    <section class="view stack" id="v-trails">
+      <div class="card">
+        <h3>Trails <button type="button" class="btn inline" id="tr-refresh">↻</button></h3>
+        <div class="muted">Every audit log and evidence run under the evidence roots the console was launched with (MC_EVIDENCE), and the console's own log. Every verdict on this screen is the console's.</div>
+        <div class="table" id="tr-list"></div>
+      </div>
+      <div class="card">
+        <h3>Trail</h3>
+        <div class="muted">reading <span id="tr-selected">no log yet: press Read on one above</span></div>
+        <label>since (optional, ISO 8601)</label><input id="tr-since" placeholder="2026-11-01T00:00:00Z">
+        <label>only the last N events (optional)</label><input id="tr-last" inputmode="numeric">
+        <label>public key files under the evidence roots (optional: the console's own pinned check)</label><input id="tr-pins" placeholder="pins/instance.pub">
+        <div class="toolrow"><button type="button" class="btn" id="tr-go">Read trail</button></div>
+        <div id="tr-out"></div>
+      </div>
+      <div class="card">
+        <h3>Receipt</h3>
+        <label>receipt index</label><input id="rc-index" inputmode="numeric" value="0">
+        <div class="toolrow"><button type="button" class="btn" id="rc-go">Open receipt</button>
+          <button type="button" class="btn" id="rc-download" disabled>Download bundle</button></div>
+        <div id="rc-out"></div>
+      </div>
+      <div class="card">
+        <h3>Raw bytes</h3>
+        <div class="muted">The lines as written, which a check that does not trust the console recomputes from.</div>
+        <label>first line</label><input id="rc-raw-start" inputmode="numeric" value="0">
+        <label>how many lines</label><input id="rc-raw-count" inputmode="numeric" value="20">
+        <div class="toolrow"><button type="button" class="btn" id="rc-raw-log">Raw log</button>
+          <button type="button" class="btn" id="rc-raw-statements">Raw statements</button></div>
+        <div id="rc-raw-out"></div>
+      </div>
+    </section>
+
+    <!-- AUDITING: evidence runs (differential, governed harness, intent and population runs) -->
+    <section class="view stack" id="v-evidence">
+      <div class="card">
+        <h3>Evidence run</h3>
+        <div class="muted">A run directory (run.json, cases.jsonl, images.jsonl, receipts.jsonl, receipts.roots.jsonl) verified by core_evidence. The console replays a bounded sample; the command it prints checks every receipt.</div>
+        <label>run directory under the evidence roots</label><input id="ev-run" placeholder="runs/one">
+        <label>authority public key file (optional)</label><input id="ev-authority" placeholder="pins/authority.pub">
+        <label>instance public key file (optional)</label><input id="ev-instance" placeholder="pins/instance.pub">
+        <label>receipts to replay (optional)</label><input id="ev-sample" inputmode="numeric">
+        <div class="toolrow"><button type="button" class="btn" id="ev-go">Verify run</button></div>
+        <div id="ev-out"></div>
+      </div>
+      <div class="card">
+        <h3>Collector feed</h3>
+        <div class="muted">A session of the collector's feed the console kept, checked again from its bytes: every leaf against its frame, every seal against the tree, the holes the console's copy has. The seals are the collector's and are not signed.</div>
+        <label>kept session directory under the evidence roots</label><input id="fd-path" placeholder="collector-feed/&lt;session&gt;">
+        <label>one segment alone (optional)</label><input id="fd-segment" inputmode="numeric">
+        <div class="toolrow"><button type="button" class="btn" id="fd-go">Check the session</button><button type="button" class="btn" id="fd-live">The live session</button></div>
+        <div id="fd-out"></div>
+      </div>
+    </section>
+
+    <!-- AUDITING: change control (flow manifests) and pack verify -->
+    <section class="view stack" id="v-change">
+      <div class="card">
+        <h3>Change control</h3>
+        <div class="muted">Whether a flow's text is authorized by a manifest a pinned authority key signed, and whether a receipt's covering statement names that text.</div>
+        <label>flow document under the evidence roots</label><input id="cc-flow" placeholder="flows/f.md">
+        <label>authority public key files (optional)</label><input id="cc-pins" placeholder="pins/authority.pub">
+        <label>audit log holding the receipt (optional)</label><input id="cc-log" placeholder="run.audit.jsonl">
+        <label>receipt index</label><input id="cc-index" inputmode="numeric" value="0">
+        <div class="toolrow"><button type="button" class="btn" id="cc-go">Check the flow</button></div>
+        <div id="cc-out"></div>
+      </div>
+      <div class="card">
+        <h3>Pack verify</h3>
+        <label>signed policy image under the evidence roots</label><input id="cc-ppt" placeholder="v1.ppt">
+        <label>authority public key files</label><input id="cc-pack-pins" placeholder="pins/authority.pub">
+        <div class="toolrow"><button type="button" class="btn" id="cc-pack-go">Verify pack</button></div>
+        <div id="cc-pack-out"></div>
+        <div class="muted">A deployment's swap and attestation history is its swaps.log, read on the Trails screen.</div>
+      </div>
+    </section>
+
+    <!-- AUDITING: anchored records, read only -->
+    <section class="view stack" id="v-anchors">
+      <div class="card">
+        <h3>Anchors</h3>
+        <div class="muted">Verify an anchored record. Nothing here anchors, upgrades or stamps a calendar; that is the command line's.</div>
+        <label>leaf hash (OpenTimestamps)</label><input id="an-leaf" placeholder="64 hex characters">
+        <label>anchor directory under the evidence roots</label><input id="an-dir" placeholder="proofs">
+        <label>anchor label</label><input id="an-label" placeholder="v1">
+        <div class="toolrow"><button type="button" class="btn" id="an-go">Verify OpenTimestamps</button></div>
+        <label>root file (RFC 3161)</label><input id="an-root" placeholder="root.txt">
+        <label>timestamp response</label><input id="an-tsr" placeholder="root.tsr">
+        <label>the TSA's CA certificate</label><input id="an-ca" placeholder="ca.crt">
+        <div class="toolrow"><button type="button" class="btn" id="an-rfc-go">Verify RFC 3161</button></div>
+        <div id="an-out"></div>
+      </div>
+    </section>
+
+    <!-- AUDITING: the cause decoder, from the registry the console serves -->
+    <section class="view stack" id="v-causes">
+      <div class="card">
+        <h3>Causes</h3>
+        <label>a cause code (decimal or 0x hex) or name, or words to filter by</label><input id="cs-query" placeholder="34, 0x22 or route:human">
+        <div id="cs-out"></div>
+        <div class="table" id="cs-table"></div>
+      </div>
+    </section>
+
+    <!-- AUDITING: the assessor's pinned keys, kept in the page and never sent -->
+    <section class="view stack" id="v-keys">
+      <div class="card">
+        <h3>Pinned keys</h3>
+        <div class="drop" id="ky-drop">Drop public key files here (raw 32 byte Ed25519 keys, or their hex)
+          <input type="file" id="ky-file" multiple></div>
+        <label>or paste a key's hex</label><input id="ky-hex" placeholder="64 hex characters">
+        <label>label</label><input id="ky-label" placeholder="instance key from the deployment">
+        <div class="toolrow"><button type="button" class="btn" id="ky-add">Pin key</button></div>
+        <div class="muted" id="ky-note"></div>
+        <div class="table" id="ky-list"></div>
+      </div>
+    </section>
+
+    <!-- POLICY: signed pack verify, the active policy and its swap history, facet inspector (no signing) -->
     <section class="view" id="v-policy">
       <div class="card">
+        <h3>Policy host</h3>
+        <div class="muted">What a deployment runs, from its state directory under an evidence root: the active record, its image check, the swap history and the root statements. Swapping, signing and attesting stay on the CLI.</div>
+        <label>deployment state dir (under an evidence root)</label><input id="ph-state" placeholder="e.g. edge/state">
+        <div class="toolrow"><button class="btn" id="ph-read">Read</button></div>
+        <div id="ph-out"></div>
+      </div>
+      <div class="card">
         <h3>Policy and telemetry</h3>
-        <div class="muted">Verify a signed pack and read the active policy's attestation. Signing and key generation stay on the CLI by design.</div>
+        <div class="muted">Verify a signed pack and read what a deployment runs, with its swap history. Signing, attesting and key generation stay on the CLI by design.</div>
         <label>pack verify</label><input id="pol-ppt" list="dl-ppt" placeholder="the .ppt image"><input id="pol-pub" list="dl-files" placeholder="public key path(s), space separated">
-        <label>attest state dir</label><input id="pol-state" placeholder="swap state dir">
+        <label>deployment state dir</label><input id="pol-state" placeholder="the policy host state dir">
         <label>facet decode / encode</label><input id="pol-flow" list="dl-flows" placeholder="flow .md">
         <input id="pol-hex" placeholder="wire hex (decode)"><input id="pol-json" placeholder='reading JSON (encode), e.g. {"amount":500}'>
         <div class="toolrow">
           <button class="btn" data-policy="pack-verify">Pack verify</button>
-          <button class="btn" data-policy="pack-attest">Pack attest</button>
+          <button class="btn" data-policy="pack-active">Active policy</button>
           <button class="btn" data-policy="facet-decode">Facet decode</button>
           <button class="btn" data-policy="facet-encode">Facet encode</button>
         </div>
@@ -208,6 +455,6 @@
   <div id="toast" class="toast hidden"></div>
 
   <script src="/vendor/cytoscape.min.js"></script>
-  <script src="/app.js"></script>
+  <script type="module" src="/js/main.mjs"></script>
 </body>
 </html>

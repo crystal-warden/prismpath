@@ -70,12 +70,15 @@ prismpath = ["flows/*.md",                    # example + reference flows
           "examples/README.md", "examples/*/*",   # the persona examples; the compiler references and two tests read them
           "tests/fixtures/*.md", "tests/fixtures/*.jsonl",   # the lint fixture and the kappa dataset
           "tests/fixtures/core_evidence/*.jsonl",   # the cases a core run is produced from (test_evidence_verify)
+          "tests/fixtures/collector_feed/*.jsonl",  # recorded collector feeds the console reads (test_mission_control_feed)
           "tests/fixtures/compiler/*", "tests/fixtures/compiler/anchored/*",   # the compiler references
           "telemetry/conformance/*.json",     # the frozen Facet corpora every other implementation is judged by
-          "portable/conformance/*.json"]      # the frozen kernel spec
+          "portable/conformance/*.json",      # the frozen kernel spec
+          "portable/transparency_dev_consistency.json",   # the reference probes merkle_consistency.json is made from
+          "portable/canon2.mjs", "portable/merkle.mjs"]   # canon/2 and the RFC 6962 tree, for Mission Control's in page verifier
 "prismpath.plugins.pysprint" = ["*.md"]   # ARCH.md / LESSONS.md read at runtime by the sprint plugin
 # Mission Control's browser command center — served at runtime by the FastAPI app (control-plane extra).
-"prismpath.mission_control" = ["static/*", "static/vendor/*"]
+"prismpath.mission_control" = ["static/*", "static/vendor/*", "static/js/*.mjs", "static/js/tests/*.mjs"]
 
 # Prose documentation, installed beside the package (sys.prefix/share/doc/prismpath/…) so an
 # air-gapped install still carries it. Not importable — read these from the repo or GitHub normally.
